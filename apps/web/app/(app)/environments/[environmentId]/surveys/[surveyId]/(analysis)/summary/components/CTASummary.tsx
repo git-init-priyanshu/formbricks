@@ -1,40 +1,40 @@
+"use client";
+
 import { InboxIcon } from "lucide-react";
-
-import { TAttributeClass } from "@formbricks/types/attributeClasses";
-import { TSurvey, TSurveyQuestionSummaryCta } from "@formbricks/types/surveys";
-import { ProgressBar } from "@formbricks/ui/ProgressBar";
-
+import { useTranslation } from "react-i18next";
+import { TSurvey, TSurveyElementSummaryCta } from "@formbricks/types/surveys/types";
+import { ProgressBar } from "@/modules/ui/components/progress-bar";
 import { convertFloatToNDecimal } from "../lib/utils";
-import { QuestionSummaryHeader } from "./QuestionSummaryHeader";
+import { ElementSummaryHeader } from "./ElementSummaryHeader";
 
 interface CTASummaryProps {
-  questionSummary: TSurveyQuestionSummaryCta;
+  elementSummary: TSurveyElementSummaryCta;
   survey: TSurvey;
-  attributeClasses: TAttributeClass[];
 }
 
-export const CTASummary = ({ questionSummary, survey, attributeClasses }: CTASummaryProps) => {
+export const CTASummary = ({ elementSummary, survey }: CTASummaryProps) => {
+  const { t } = useTranslation();
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <QuestionSummaryHeader
+      <ElementSummaryHeader
         survey={survey}
-        questionSummary={questionSummary}
+        elementSummary={elementSummary}
         showResponses={false}
-        attributeClasses={attributeClasses}
-        insights={
+        additionalInfo={
           <>
             <div className="flex items-center rounded-lg bg-slate-100 p-2">
               <InboxIcon className="mr-2 h-4 w-4" />
-              {`${questionSummary.impressionCount} Impressions`}
+              {`${elementSummary.impressionCount} ${t("common.impressions")}`}
             </div>
             <div className="flex items-center rounded-lg bg-slate-100 p-2">
               <InboxIcon className="mr-2 h-4 w-4" />
-              {`${questionSummary.clickCount} Clicks`}
+              {`${elementSummary.clickCount} ${t("common.clicks")}`}
             </div>
-            {!questionSummary.question.required && (
+            {!elementSummary.element.required && (
               <div className="flex items-center rounded-lg bg-slate-100 p-2">
                 <InboxIcon className="mr-2 h-4 w-4" />
-                {`${questionSummary.skipCount} Skips`}
+                {`${elementSummary.skipCount} ${t("common.skips")}`}
               </div>
             )}
           </>
@@ -46,15 +46,16 @@ export const CTASummary = ({ questionSummary, survey, attributeClasses }: CTASum
             <p className="font-semibold text-slate-700">CTR</p>
             <div>
               <p className="rounded-lg bg-slate-100 px-2 text-slate-700">
-                {convertFloatToNDecimal(questionSummary.ctr.percentage, 1)}%
+                {convertFloatToNDecimal(elementSummary.ctr.percentage, 2)}%
               </p>
             </div>
           </div>
           <p className="flex w-32 items-end justify-end text-slate-600">
-            {questionSummary.ctr.count} {questionSummary.ctr.count === 1 ? "Click" : "Clicks"}
+            {elementSummary.ctr.count}{" "}
+            {elementSummary.ctr.count === 1 ? t("common.click") : t("common.clicks")}
           </p>
         </div>
-        <ProgressBar barColor="bg-brand-dark" progress={questionSummary.ctr.percentage / 100} />
+        <ProgressBar barColor="bg-brand-dark" progress={elementSummary.ctr.percentage / 100} />
       </div>
     </div>
   );

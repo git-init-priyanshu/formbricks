@@ -1,26 +1,35 @@
 import { getServerSession } from "next-auth";
+import { AuthenticationError, ResourceNotFoundError } from "@formbricks/types/errors";
+import { getOrganizationByEnvironmentId } from "@/lib/organization/service";
+import { getProjectByEnvironmentId } from "@/lib/project/service";
+import { getTranslate } from "@/lingodotdev/server";
+import { authOptions } from "@/modules/auth/lib/authOptions";
 
-import { authOptions } from "@formbricks/lib/authOptions";
-import { getOrganizationByEnvironmentId } from "@formbricks/lib/organization/service";
-import { getProductByEnvironmentId } from "@formbricks/lib/product/service";
+const AccountSettingsLayout = async (props: {
+  params: Promise<{ environmentId: string }>;
+  children: React.ReactNode;
+}) => {
+  const params = await props.params;
 
-const AccountSettingsLayout = async ({ children, params }) => {
-  const [organization, product, session] = await Promise.all([
+  const { children } = props;
+
+  const t = await getTranslate();
+  const [organization, project, session] = await Promise.all([
     getOrganizationByEnvironmentId(params.environmentId),
-    getProductByEnvironmentId(params.environmentId),
+    getProjectByEnvironmentId(params.environmentId),
     getServerSession(authOptions),
   ]);
 
   if (!organization) {
-    throw new Error("Organization not found");
+    throw new ResourceNotFoundError(t("common.organization"), null);
   }
 
-  if (!product) {
-    throw new Error("Product not found");
+  if (!project) {
+    throw new ResourceNotFoundError(t("common.workspace"), null);
   }
 
   if (!session) {
-    throw new Error("Unauthenticated");
+    throw new AuthenticationError(t("common.not_authenticated"));
   }
 
   return <>{children}</>;

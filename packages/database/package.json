@@ -1,55 +1,69 @@
 {
   "name": "@formbricks/database",
+  "packageManager": "pnpm@10.32.1",
   "private": true,
   "version": "0.1.0",
-  "main": "./src/index.ts",
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
+  "type": "module",
   "files": [
-    "src",
-    "zod",
-    "zod-utils.ts"
+    "dist",
+    "schema.prisma",
+    "migration"
   ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./types/*": {
+      "import": "./types/*.ts"
+    },
+    "./zod/*": {
+      "import": "./zod/*.ts"
+    },
+    "./seed/constants": {
+      "import": "./src/seed/constants.ts"
+    }
+  },
   "scripts": {
-    "clean": "rimraf .turbo node_modules",
-    "db:migrate:deploy": "env DATABASE_URL=\"${MIGRATE_DATABASE_URL:-$DATABASE_URL}\" prisma migrate deploy",
-    "db:migrate:dev": "dotenv -e ../../.env -- pnpm prisma migrate dev",
-    "db:migrate:vercel": "if test \"$NEXT_PUBLIC_VERCEL_ENV\" = \"preview\" ; then env DATABASE_URL=\"$MIGRATE_DATABASE_URL\" prisma db push --accept-data-loss ; else env DATABASE_URL=\"$MIGRATE_DATABASE_URL\" prisma migrate deploy ; fi",
+    "clean": "rimraf .turbo node_modules dist",
+    "build": "pnpm generate && vite build",
+    "dev": "vite build --watch",
+    "db:migrate:deploy": "env DATABASE_URL=\"${MIGRATE_DATABASE_URL:-$DATABASE_URL}\" node ./dist/scripts/apply-migrations.js",
+    "db:migrate:dev": "pnpm build && dotenv -e ../../.env -- sh -c \"pnpm prisma generate && node ./dist/scripts/apply-migrations.js\"",
+    "db:create-saml-database:deploy": "env SAML_DATABASE_URL=\"${SAML_DATABASE_URL}\" node ./dist/scripts/create-saml-database.js",
+    "db:create-saml-database:dev": "dotenv -e ../../.env -- node ./dist/scripts/create-saml-database.js",
     "db:push": "prisma db push --accept-data-loss",
-    "db:up": "docker-compose up -d",
-    "db:setup": "pnpm db:up && pnpm db:migrate:dev",
+    "db:seed": "dotenv -e ../../.env -- tsx src/seed.ts",
+    "db:seed:clear": "dotenv -e ../../.env -- tsx src/seed.ts --clear",
+    "db:setup": "pnpm db:migrate:dev && pnpm db:create-saml-database:dev",
     "db:start": "pnpm db:setup",
-    "db:down": "docker-compose down",
     "format": "prisma format",
     "generate": "prisma generate",
     "lint": "eslint ./src --fix",
-    "post-install": "pnpm generate",
-    "predev": "pnpm generate",
-    "data-migration:v1.6": "ts-node ./data-migrations/20240207041922_advanced_targeting/data-migration.ts",
-    "data-migration:styling": "ts-node ./data-migrations/20240320090315_add_form_styling/data-migration.ts",
-    "data-migration:styling-fix": "ts-node ./data-migrations/20240320090315_add_form_styling/data-migration-fix.ts",
-    "data-migration:website-surveys": "ts-node ./data-migrations/20240410111624_adds_website_and_inapp_survey/data-migration.ts",
-    "data-migration:mls": "ts-node ./data-migrations/20240318050527_add_languages_and_survey_languages/data-migration.ts",
-    "data-migration:mls-fix": "ts-node ./data-migrations/20240318050527_add_languages_and_survey_languages/data-migration-fix.ts",
-    "data-migration:mls-range-fix": "ts-node ./data-migrations/20240318050527_add_languages_and_survey_languages/data-migration-range-fix.ts",
-    "data-migration:userId": "ts-node ./data-migrations/20240408123456_userid_migration/data-migration.ts",
-    "data-migration:refactor-actions": "ts-node ./data-migrations/20240501111944_refactors_actions_and_removes_inline_triggers/data-migration.ts",
-    "data-migration:mls-welcomeCard-fix": "ts-node ./data-migrations/20240318050527_add_languages_and_survey_languages/data-migration-welcomeCard-fix.ts",
-    "data-migration:v2.0": "pnpm data-migration:mls && pnpm data-migration:styling && pnpm data-migration:styling-fix && pnpm data-migration:website-surveys && pnpm data-migration:userId && pnpm data-migration:mls-welcomeCard-fix && pnpm data-migration:refactor-actions"
+    "generate-data-migration": "tsx ./src/scripts/generate-data-migration.ts",
+    "create-migration": "dotenv -e ../../.env -- tsx ./src/scripts/create-migration.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.14.0",
-    "@prisma/extension-accelerate": "^1.0.0",
-    "dotenv-cli": "^7.4.2"
+    "@formbricks/logger": "workspace:*",
+    "@paralleldrive/cuid2": "2.3.1",
+    "@prisma/client": "6.19.2",
+    "bcryptjs": "3.0.3",
+    "uuid": "13.0.0",
+    "zod": "4.3.6",
+    "zod-openapi": "5.4.6"
   },
   "devDependencies": {
-    "@formbricks/tsconfig": "workspace:*",
-    "@formbricks/types": "workspace:*",
-    "@paralleldrive/cuid2": "^2.2.2",
-    "eslint-config-formbricks": "workspace:*",
-    "prisma": "^5.14.0",
-    "prisma-dbml-generator": "^0.12.0",
-    "prisma-json-types-generator": "^3.0.4",
-    "ts-node": "^10.9.2",
-    "zod": "^3.23.8",
-    "zod-prisma": "^0.5.4"
+    "@formbricks/config-typescript": "workspace:*",
+    "@formbricks/eslint-config": "workspace:*",
+    "dotenv-cli": "11.0.0",
+    "glob": "13.0.6",
+    "prisma": "6.19.2",
+    "prisma-json-types-generator": "3.6.2",
+    "tsx": "4.21.0",
+    "vite": "7.3.1",
+    "vite-plugin-dts": "4.5.4"
   }
 }

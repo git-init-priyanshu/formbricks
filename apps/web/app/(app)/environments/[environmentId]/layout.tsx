@@ -1,50 +1,36 @@
-import { EnvironmentLayout } from "@/app/(app)/environments/[environmentId]/components/EnvironmentLayout";
-import { ResponseFilterProvider } from "@/app/(app)/environments/[environmentId]/components/ResponseFilterContext";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { EnvironmentLayout } from "@/app/(app)/environments/[environmentId]/components/EnvironmentLayout";
+import { EnvironmentContextWrapper } from "@/app/(app)/environments/[environmentId]/context/environment-context";
+import { authOptions } from "@/modules/auth/lib/authOptions";
+import { getEnvironmentLayoutData } from "@/modules/environments/lib/utils";
+import EnvironmentStorageHandler from "./components/EnvironmentStorageHandler";
 
-import { authOptions } from "@formbricks/lib/authOptions";
-import { hasUserEnvironmentAccess } from "@formbricks/lib/environment/auth";
-import { getOrganizationByEnvironmentId } from "@formbricks/lib/organization/service";
-import { AuthorizationError } from "@formbricks/types/errors";
-import { ToasterClient } from "@formbricks/ui/ToasterClient";
+const EnvLayout = async (props: {
+  params: Promise<{ environmentId: string }>;
+  children: React.ReactNode;
+}) => {
+  const params = await props.params;
+  const { children } = props;
 
-import { FormbricksClient } from "../../components/FormbricksClient";
-import { PosthogIdentify } from "./components/PosthogIdentify";
-
-const EnvLayout = async ({ children, params }) => {
+  // Check session first (required for userId)
   const session = await getServerSession(authOptions);
-  if (!session || !session.user) {
+  if (!session?.user) {
     return redirect(`/auth/login`);
   }
-  const hasAccess = await hasUserEnvironmentAccess(session.user.id, params.environmentId);
-  if (!hasAccess) {
-    throw new AuthorizationError("Not authorized");
-  }
 
-  const organization = await getOrganizationByEnvironmentId(params.environmentId);
-  if (!organization) {
-    throw new Error("Organization not found");
-  }
+  // Single consolidated data fetch (replaces ~12 individual fetches)
+  const layoutData = await getEnvironmentLayoutData(params.environmentId, session.user.id);
 
   return (
     <>
-      <ResponseFilterProvider>
-        <PosthogIdentify
-          session={session}
-          environmentId={params.environmentId}
-          organizationId={organization.id}
-          organizationName={organization.name}
-          inAppSurveyBillingStatus={organization.billing.features.inAppSurvey.status}
-          linkSurveyBillingStatus={organization.billing.features.linkSurvey.status}
-          userTargetingBillingStatus={organization.billing.features.userTargeting.status}
-        />
-        <FormbricksClient session={session} />
-        <ToasterClient />
-        <EnvironmentLayout environmentId={params.environmentId} session={session}>
-          {children}
-        </EnvironmentLayout>
-      </ResponseFilterProvider>
+      <EnvironmentStorageHandler environmentId={params.environmentId} />
+      <EnvironmentContextWrapper
+        environment={layoutData.environment}
+        project={layoutData.project}
+        organization={layoutData.organization}>
+        <EnvironmentLayout layoutData={layoutData}>{children}</EnvironmentLayout>
+      </EnvironmentContextWrapper>
     </>
   );
 };

@@ -1,25 +1,27 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-node_modules
+**/node_modules
 .pnp
 .pnp.js
 .pnpm-store/
 
 # testing
-coverage
+**/coverage
 
 # next.js
-.next/
-out/
-build
+**/.next/
+**/out/
+**/build
+**/next-env.d.ts
 
 # node
-dist/
+**/dist/
 
 # misc
-.DS_Store
+**/.DS_Store
 *.pem
+Zone.Identifier
 
 # debug
 npm-debug.log*
@@ -27,34 +29,40 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
 !packages/database/.env
 !apps/web/.env
 
-# Prisma generated files
-packages/database/zod
-
-# turbo
+# build tools
 .turbo
+**/*vite.config.*.timestamp-*
 
-# nixos stuff
+# environment specific
 .direnv
 
-Zone.Identifier
-
 # Playwright
-/test-results/
+**/test-results/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
 
-# uploads
+# project specific
 packages/lib/uploads
+apps/web/public/js
+packages/database/migrations
+branch.json
+.vercel
 
-# Vite Timestamps
-vite.config.*.timestamp-*
-
+# IntelliJ IDEA
+/.idea/
+/*.iml
+packages/ios/FormbricksSDK/FormbricksSDK.xcodeproj/project.xcworkspace/xcuserdata
+.cursorrules
+i18n.cache
+stats.html
+# next-agents-md
+.next-docs/

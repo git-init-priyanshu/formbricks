@@ -1,61 +1,99 @@
+import { ResourceNotFoundError } from "@formbricks/types/errors";
 import { MainNavigation } from "@/app/(app)/environments/[environmentId]/components/MainNavigation";
 import { TopControlBar } from "@/app/(app)/environments/[environmentId]/components/TopControlBar";
-import type { Session } from "next-auth";
-
-import { IS_FORMBRICKS_CLOUD } from "@formbricks/lib/constants";
-import { getEnvironment, getEnvironments } from "@formbricks/lib/environment/service";
-import { getMembershipByUserIdOrganizationId } from "@formbricks/lib/membership/service";
-import {
-  getOrganizationByEnvironmentId,
-  getOrganizationsByUserId,
-} from "@formbricks/lib/organization/service";
-import { getProducts } from "@formbricks/lib/product/service";
-import { DevEnvironmentBanner } from "@formbricks/ui/DevEnvironmentBanner";
-import { ErrorComponent } from "@formbricks/ui/ErrorComponent";
+import { IS_DEVELOPMENT, IS_FORMBRICKS_CLOUD } from "@/lib/constants";
+import { getPublicDomain } from "@/lib/getPublicUrl";
+import { getAccessFlags } from "@/lib/membership/utils";
+import { getTranslate } from "@/lingodotdev/server";
+import { getOrganizationProjectsLimit } from "@/modules/ee/license-check/lib/utils";
+import { TEnvironmentLayoutData } from "@/modules/environments/types/environment-auth";
+import { LimitsReachedBanner } from "@/modules/ui/components/limits-reached-banner";
+import { PendingDowngradeBanner } from "@/modules/ui/components/pending-downgrade-banner";
 
 interface EnvironmentLayoutProps {
-  environmentId: string;
-  session: Session;
+  layoutData: TEnvironmentLayoutData;
   children?: React.ReactNode;
 }
 
-export const EnvironmentLayout = async ({ environmentId, session, children }: EnvironmentLayoutProps) => {
-  const [environment, organizations, organization] = await Promise.all([
-    getEnvironment(environmentId),
-    getOrganizationsByUserId(session.user.id),
-    getOrganizationByEnvironmentId(environmentId),
-  ]);
+export const EnvironmentLayout = async ({ layoutData, children }: EnvironmentLayoutProps) => {
+  const t = await getTranslate();
+  const publicDomain = getPublicDomain();
 
-  if (!organization || !environment) {
-    return <ErrorComponent />;
+  // Destructure all data from props (NO database queries)
+  const {
+    user,
+    environment,
+    organization,
+    membership,
+    project, // Current project details
+    environments, // All project environments (for environment switcher)
+    isAccessControlAllowed,
+    projectPermission,
+    license,
+    responseCount,
+  } = layoutData;
+
+  // Calculate derived values (no queries)
+  const { isMember, isOwner, isManager } = getAccessFlags(membership.role);
+
+  const { features, lastChecked, isPendingDowngrade, active, status } = license;
+  const isMultiOrgEnabled = features?.isMultiOrgEnabled ?? false;
+  const organizationProjectsLimit = await getOrganizationProjectsLimit(organization.id);
+  const isOwnerOrManager = isOwner || isManager;
+
+  // Validate that project permission exists for members
+  if (isMember && !projectPermission) {
+    throw new ResourceNotFoundError(t("common.workspace"), null);
   }
-
-  const [products, environments] = await Promise.all([
-    getProducts(organization.id),
-    getEnvironments(environment.productId),
-  ]);
-
-  if (!products || !environments || !organizations) {
-    return <ErrorComponent />;
-  }
-  const currentUserMembership = await getMembershipByUserIdOrganizationId(session?.user.id, organization.id);
 
   return (
     <div className="flex h-screen min-h-screen flex-col overflow-hidden">
-      <DevEnvironmentBanner environment={environment} />
+      {IS_FORMBRICKS_CLOUD && (
+        <LimitsReachedBanner
+          organization={organization}
+          environmentId={environment.id}
+          responseCount={responseCount}
+        />
+      )}
+
+      <PendingDowngradeBanner
+        lastChecked={lastChecked}
+        isPendingDowngrade={isPendingDowngrade ?? false}
+        active={active}
+        environmentId={environment.id}
+        locale={user.locale}
+        status={status}
+      />
+
       <div className="flex h-full">
         <MainNavigation
           environment={environment}
           organization={organization}
-          organizations={organizations}
-          products={products}
-          session={session}
+          user={user}
+          project={{ id: project.id, name: project.name }}
           isFormbricksCloud={IS_FORMBRICKS_CLOUD}
-          membershipRole={currentUserMembership?.role}
+          isDevelopment={IS_DEVELOPMENT}
+          membershipRole={membership.role}
+          publicDomain={publicDomain}
+          isMultiOrgEnabled={isMultiOrgEnabled}
+          organizationProjectsLimit={organizationProjectsLimit}
+          isLicenseActive={active}
+          isAccessControlAllowed={isAccessControlAllowed}
         />
-        <div id="mainContent" className="flex-1 overflow-y-auto bg-slate-50">
-          <TopControlBar environment={environment} environments={environments} />
-          <div className="mt-14">{children}</div>
+        <div id="mainContent" className="flex flex-1 flex-col overflow-hidden bg-slate-50">
+          <TopControlBar
+            environments={environments}
+            currentOrganizationId={organization.id}
+            currentProjectId={project.id}
+            isMultiOrgEnabled={isMultiOrgEnabled}
+            organizationProjectsLimit={organizationProjectsLimit}
+            isFormbricksCloud={IS_FORMBRICKS_CLOUD}
+            isLicenseActive={active}
+            isOwnerOrManager={isOwnerOrManager}
+            isAccessControlAllowed={isAccessControlAllowed}
+            membershipRole={membership.role}
+          />
+          <div className="flex-1 overflow-y-auto">{children}</div>
         </div>
       </div>
     </div>

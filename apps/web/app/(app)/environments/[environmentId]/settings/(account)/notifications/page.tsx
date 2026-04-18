@@ -1,16 +1,15 @@
+import { getServerSession } from "next-auth";
+import { prisma } from "@formbricks/database";
+import { AuthenticationError, ResourceNotFoundError } from "@formbricks/types/errors";
+import { TUserNotificationSettings } from "@formbricks/types/user";
 import { AccountSettingsNavbar } from "@/app/(app)/environments/[environmentId]/settings/(account)/components/AccountSettingsNavbar";
 import { SettingsCard } from "@/app/(app)/environments/[environmentId]/settings/components/SettingsCard";
-import { getServerSession } from "next-auth";
-
-import { prisma } from "@formbricks/database";
-import { authOptions } from "@formbricks/lib/authOptions";
-import { getUser } from "@formbricks/lib/user/service";
-import { TUserNotificationSettings } from "@formbricks/types/user";
-import { PageContentWrapper } from "@formbricks/ui/PageContentWrapper";
-import { PageHeader } from "@formbricks/ui/PageHeader";
-
+import { getUser } from "@/lib/user/service";
+import { getTranslate } from "@/lingodotdev/server";
+import { authOptions } from "@/modules/auth/lib/authOptions";
+import { PageContentWrapper } from "@/modules/ui/components/page-content-wrapper";
+import { PageHeader } from "@/modules/ui/components/page-header";
 import { EditAlerts } from "./components/EditAlerts";
-import { EditWeeklySummary } from "./components/EditWeeklySummary";
 import { IntegrationsTip } from "./components/IntegrationsTip";
 import type { Membership } from "./types";
 
@@ -18,21 +17,18 @@ const setCompleteNotificationSettings = (
   notificationSettings: TUserNotificationSettings,
   memberships: Membership[]
 ): TUserNotificationSettings => {
-  const newNotificationSettings = {
-    alert: {},
-    weeklySummary: {},
+  const newNotificationSettings: TUserNotificationSettings = {
+    alert: {} as Record<string, boolean>,
     unsubscribedOrganizationIds: notificationSettings.unsubscribedOrganizationIds || [],
   };
   for (const membership of memberships) {
-    for (const product of membership.organization.products) {
-      // set default values for weekly summary
-      newNotificationSettings.weeklySummary[product.id] =
-        (notificationSettings.weeklySummary && notificationSettings.weeklySummary[product.id]) || false;
+    for (const project of membership.organization.projects) {
       // set default values for alerts
-      for (const environment of product.environments) {
+      for (const environment of project.environments) {
         for (const survey of environment.surveys) {
           newNotificationSettings.alert[survey.id] =
-            notificationSettings[survey.id]?.responseFinished ||
+            (notificationSettings as unknown as Record<string, Record<string, boolean>>)[survey.id]
+              ?.responseFinished ||
             (notificationSettings.alert && notificationSettings.alert[survey.id]) ||
             false; // check for legacy notification settings w/o "alerts" key
         }
@@ -46,13 +42,76 @@ const getMemberships = async (userId: string): Promise<Membership[]> => {
   const memberships = await prisma.membership.findMany({
     where: {
       userId,
+      role: {
+        not: "billing",
+      },
+      OR: [
+        {
+          // Fetch all projects if user role is owner or manager
+          role: {
+            in: ["owner", "manager"],
+          },
+        },
+        {
+          // Filter projects based on team membership if user is not owner or manager
+          organization: {
+            projects: {
+              some: {
+                projectTeams: {
+                  some: {
+                    team: {
+                      teamUsers: {
+                        some: {
+                          userId,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
     },
     select: {
       organization: {
         select: {
           id: true,
           name: true,
-          products: {
+          projects: {
+            // Apply conditional filtering based on user's role
+            where: {
+              OR: [
+                {
+                  // Fetch all projects if user is owner or manager
+                  organization: {
+                    memberships: {
+                      some: {
+                        userId,
+                        role: {
+                          in: ["owner", "manager"],
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  // Only include projects accessible through teams if user is not owner or manager
+                  projectTeams: {
+                    some: {
+                      team: {
+                        teamUsers: {
+                          some: {
+                            userId,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
             select: {
               id: true,
               name: true,
@@ -79,31 +138,42 @@ const getMemberships = async (userId: string): Promise<Membership[]> => {
   return memberships;
 };
 
-const Page = async ({ params, searchParams }) => {
+const Page = async (props: {
+  params: Promise<{ environmentId: string }>;
+  searchParams: Promise<Record<string, string>>;
+}) => {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
+  const t = await getTranslate();
   const session = await getServerSession(authOptions);
   if (!session) {
-    throw new Error("Unauthorized");
+    throw new AuthenticationError(t("common.not_authenticated"));
   }
   const autoDisableNotificationType = searchParams["type"];
   const autoDisableNotificationElementId = searchParams["elementId"];
 
   const [user, memberships] = await Promise.all([getUser(session.user.id), getMemberships(session.user.id)]);
   if (!user) {
-    throw new Error("User not found");
+    throw new AuthenticationError(t("common.not_authenticated"));
+  }
+
+  if (!memberships) {
+    throw new ResourceNotFoundError(t("common.membership"), null);
   }
 
   if (user?.notificationSettings) {
     user.notificationSettings = setCompleteNotificationSettings(user.notificationSettings, memberships);
   }
-
   return (
     <PageContentWrapper>
-      <PageHeader pageTitle="Account Settings">
+      <PageHeader pageTitle={t("common.account_settings")}>
         <AccountSettingsNavbar environmentId={params.environmentId} activeId="notifications" />
       </PageHeader>
       <SettingsCard
-        title="Email alerts (Surveys)"
-        description="Set up an alert to get an email on new responses.">
+        title={t("environments.settings.notifications.email_alerts_surveys")}
+        description={t(
+          "environments.settings.notifications.set_up_an_alert_to_get_an_email_on_new_responses"
+        )}>
         <EditAlerts
           memberships={memberships}
           user={user}
@@ -113,11 +183,6 @@ const Page = async ({ params, searchParams }) => {
         />
       </SettingsCard>
       <IntegrationsTip environmentId={params.environmentId} />
-      <SettingsCard
-        title="Weekly summary (Products)"
-        description="Stay up-to-date with a Weekly every Monday.">
-        <EditWeeklySummary memberships={memberships} user={user} environmentId={params.environmentId} />
-      </SettingsCard>
     </PageContentWrapper>
   );
 };

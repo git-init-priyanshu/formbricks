@@ -1,36 +1,21 @@
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+"use client";
 
-import { TSurveySummary } from "@formbricks/types/surveys";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@formbricks/ui/Tooltip";
+import { useTranslation } from "react-i18next";
+import { TSurveySummary } from "@formbricks/types/surveys/types";
+import { InteractiveCard } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/summary/components/interactive-card";
+import { StatCard } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/summary/components/stat-card";
+import { cn } from "@/modules/ui/lib/utils";
 
 interface SummaryMetadataProps {
-  setShowDropOffs: React.Dispatch<React.SetStateAction<boolean>>;
-  showDropOffs: boolean;
   surveySummary: TSurveySummary["meta"];
+  quotasCount: number;
+  isLoading: boolean;
+  tab: "dropOffs" | "quotas" | "impressions" | undefined;
+  setTab: React.Dispatch<React.SetStateAction<"dropOffs" | "quotas" | "impressions" | undefined>>;
+  isQuotasAllowed: boolean;
 }
 
-const StatCard = ({ label, percentage, value, tooltipText }) => (
-  <TooltipProvider delayDuration={50}>
-    <Tooltip>
-      <TooltipTrigger>
-        <div className="flex h-full cursor-default flex-col justify-between space-y-2 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm">
-          <p className="text-sm text-slate-600">
-            {label}
-            {percentage && percentage !== "NaN%" && (
-              <span className="ml-1 rounded-xl bg-slate-100 px-2 py-1 text-xs">{percentage}</span>
-            )}
-          </p>
-          <p className="text-2xl font-bold text-slate-800">{value}</p>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent>
-        <p>{tooltipText}</p>
-      </TooltipContent>
-    </Tooltip>
-  </TooltipProvider>
-);
-
-const formatTime = (ttc) => {
+const formatTime = (ttc: number) => {
   const seconds = ttc / 1000;
   let formattedValue;
 
@@ -45,7 +30,14 @@ const formatTime = (ttc) => {
   return formattedValue;
 };
 
-export const SummaryMetadata = ({ setShowDropOffs, showDropOffs, surveySummary }: SummaryMetadataProps) => {
+export const SummaryMetadata = ({
+  surveySummary,
+  quotasCount,
+  isLoading,
+  tab,
+  setTab,
+  isQuotasAllowed,
+}: SummaryMetadataProps) => {
   const {
     completedPercentage,
     completedResponses,
@@ -55,67 +47,85 @@ export const SummaryMetadata = ({ setShowDropOffs, showDropOffs, surveySummary }
     startsPercentage,
     totalResponses,
     ttcAverage,
+    quotasCompleted,
+    quotasCompletedPercentage,
   } = surveySummary;
+  const { t } = useTranslation();
+  const dropoffCountValue = dropOffCount === 0 ? <span>-</span> : dropOffCount;
+
+  const handleTabChange = (val: "dropOffs" | "quotas" | "impressions") => {
+    const change = tab === val ? undefined : val;
+    setTab(change);
+  };
 
   return (
     <div>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5 md:gap-x-2 lg:col-span-4">
-        <StatCard
-          label="Impressions"
+      <div
+        className={cn(
+          `grid gap-4 sm:grid-cols-2 md:grid-cols-3 md:gap-x-2 lg:grid-cols-3 2xl:grid-cols-5`,
+          isQuotasAllowed && quotasCount > 0 && "2xl:grid-cols-6"
+        )}>
+        <InteractiveCard
+          key="impressions"
+          tab="impressions"
+          label={t("environments.surveys.summary.impressions")}
           percentage={null}
           value={displayCount === 0 ? <span>-</span> : displayCount}
-          tooltipText="Number of times the survey has been viewed."
+          tooltipText={t("environments.surveys.summary.impressions_tooltip")}
+          isLoading={isLoading}
+          onClick={() => handleTabChange("impressions")}
+          isActive={tab === "impressions"}
         />
         <StatCard
-          label="Starts"
-          percentage={`${Math.round(startsPercentage)}%`}
+          label={t("environments.surveys.summary.starts")}
+          percentage={Math.round(startsPercentage) > 100 ? null : Math.round(startsPercentage)}
           value={totalResponses === 0 ? <span>-</span> : totalResponses}
-          tooltipText="Number of times the survey has been started."
+          tooltipText={t("environments.surveys.summary.starts_tooltip")}
+          isLoading={isLoading}
         />
         <StatCard
-          label="Responses"
-          percentage={`${Math.round(completedPercentage)}%`}
+          label={t("environments.surveys.summary.completed")}
+          percentage={Math.round(completedPercentage) > 100 ? null : Math.round(completedPercentage)}
           value={completedResponses === 0 ? <span>-</span> : completedResponses}
-          tooltipText="Number of times the survey has been completed."
+          tooltipText={t("environments.surveys.summary.completed_tooltip")}
+          isLoading={isLoading}
         />
 
-        <TooltipProvider delayDuration={50}>
-          <Tooltip>
-            <TooltipTrigger>
-              <div
-                onClick={() => setShowDropOffs(!showDropOffs)}
-                className="group flex h-full w-full cursor-pointer flex-col justify-between space-y-2 rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm">
-                <span className="text-sm text-slate-600">
-                  Drop-Offs
-                  {`${Math.round(dropOffPercentage)}%` !== "NaN%" && (
-                    <span className="ml-1 rounded-xl bg-slate-100 px-2 py-1 text-xs">{`${Math.round(dropOffPercentage)}%`}</span>
-                  )}
-                </span>
-                <div className="flex w-full items-end justify-between">
-                  <span className="text-2xl font-bold text-slate-800">
-                    {dropOffCount === 0 ? <span>-</span> : dropOffCount}
-                  </span>
-                  <span className="ml-1 flex items-center rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-50 group-hover:bg-slate-700">
-                    {showDropOffs ? (
-                      <ChevronUpIcon className="h-4 w-4" />
-                    ) : (
-                      <ChevronDownIcon className="h-4 w-4" />
-                    )}
-                  </span>
-                </div>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Number of times the survey has been started but not completed.</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <InteractiveCard
+          key="dropOffs"
+          tab="dropOffs"
+          label={t("environments.surveys.summary.drop_offs")}
+          percentage={dropOffPercentage}
+          value={dropoffCountValue}
+          tooltipText={t("environments.surveys.summary.drop_offs_tooltip")}
+          isLoading={isLoading}
+          onClick={() => handleTabChange("dropOffs")}
+          isActive={tab === "dropOffs"}
+        />
+
         <StatCard
-          label="Time to Complete"
+          label={t("environments.surveys.summary.time_to_complete")}
           percentage={null}
           value={ttcAverage === 0 ? <span>-</span> : `${formatTime(ttcAverage)}`}
-          tooltipText="Average time to complete the survey."
+          tooltipText={t("environments.surveys.summary.ttc_survey_tooltip", {
+            defaultValue: "Average time to complete the survey.",
+          })}
+          isLoading={isLoading}
         />
+
+        {isQuotasAllowed && quotasCount > 0 && (
+          <InteractiveCard
+            key="quotas"
+            tab="quotas"
+            label={t("environments.surveys.summary.quotas_completed")}
+            percentage={quotasCompletedPercentage}
+            value={quotasCompleted}
+            tooltipText={t("environments.surveys.summary.quotas_completed_tooltip")}
+            isLoading={isLoading}
+            onClick={() => handleTabChange("quotas")}
+            isActive={tab === "quotas"}
+          />
+        )}
       </div>
     </div>
   );

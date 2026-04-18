@@ -1,4 +1,4 @@
 module.exports = {
-  root: true,
-  extends: ["formbricks"],
+  extends: ["@formbricks/eslint-config/legacy-next.js"],
+  ignorePatterns: ["**/package.json", "**/tsconfig.json"],
 };

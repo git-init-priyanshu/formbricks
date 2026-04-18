@@ -1,57 +1,93 @@
-import { authenticateRequest } from "@/app/api/v1/auth";
+import { logger } from "@formbricks/logger";
+import { TActionClass, ZActionClassInput } from "@formbricks/types/action-classes";
+import { DatabaseError } from "@formbricks/types/errors";
 import { responses } from "@/app/lib/api/response";
 import { transformErrorToDetails } from "@/app/lib/api/validator";
+import { THandlerParams, withV1ApiWrapper } from "@/app/lib/api/with-api-logging";
+import { createActionClass } from "@/lib/actionClass/service";
+import { hasPermission } from "@/modules/organization/settings/api-keys/lib/utils";
+import { getActionClasses } from "./lib/action-classes";
 
-import { createActionClass, getActionClasses } from "@formbricks/lib/actionClass/service";
-import { TActionClass, ZActionClassInput } from "@formbricks/types/actionClasses";
-import { DatabaseError } from "@formbricks/types/errors";
-
-export const GET = async (request: Request) => {
-  try {
-    const authentication = await authenticateRequest(request);
-    if (!authentication) return responses.notAuthenticatedResponse();
-    const actionClasses: TActionClass[] = await getActionClasses(authentication.environmentId!);
-    return responses.successResponse(actionClasses);
-  } catch (error) {
-    if (error instanceof DatabaseError) {
-      return responses.badRequestResponse(error.message);
+export const GET = withV1ApiWrapper({
+  handler: async ({ authentication }) => {
+    if (!authentication || !("apiKeyId" in authentication)) {
+      return { response: responses.notAuthenticatedResponse() };
     }
-    throw error;
-  }
-};
 
-export const POST = async (request: Request): Promise<Response> => {
-  try {
-    const authentication = await authenticateRequest(request);
-    if (!authentication) return responses.notAuthenticatedResponse();
-
-    let actionClassInput;
     try {
-      actionClassInput = await request.json();
-    } catch (error) {
-      console.error(`Error parsing JSON input: ${error}`);
-      return responses.badRequestResponse("Malformed JSON input, please check your request body");
-    }
-
-    const inputValidation = ZActionClassInput.safeParse(actionClassInput);
-
-    if (!inputValidation.success) {
-      return responses.badRequestResponse(
-        "Fields are missing or incorrectly formatted",
-        transformErrorToDetails(inputValidation.error),
-        true
+      const environmentIds = authentication.environmentPermissions.map(
+        (permission) => permission.environmentId
       );
+
+      const actionClasses = await getActionClasses(environmentIds);
+
+      return {
+        response: responses.successResponse(actionClasses),
+      };
+    } catch (error) {
+      if (error instanceof DatabaseError) {
+        return {
+          response: responses.badRequestResponse(error.message),
+        };
+      }
+      throw error;
+    }
+  },
+});
+
+export const POST = withV1ApiWrapper({
+  handler: async ({ req, auditLog, authentication }: THandlerParams) => {
+    if (!authentication || !("apiKeyId" in authentication)) {
+      return { response: responses.notAuthenticatedResponse() };
     }
 
-    const actionClass: TActionClass = await createActionClass(
-      authentication.environmentId!,
-      inputValidation.data
-    );
-    return responses.successResponse(actionClass);
-  } catch (error) {
-    if (error instanceof DatabaseError) {
-      return responses.badRequestResponse(error.message);
+    try {
+      let actionClassInput;
+      try {
+        actionClassInput = await req.json();
+      } catch (error) {
+        logger.error({ error, url: req.url }, "Error parsing JSON input");
+        return {
+          response: responses.badRequestResponse("Malformed JSON input, please check your request body"),
+        };
+      }
+
+      const inputValidation = ZActionClassInput.safeParse(actionClassInput);
+      if (!inputValidation.success) {
+        return {
+          response: responses.badRequestResponse(
+            "Fields are missing or incorrectly formatted",
+            transformErrorToDetails(inputValidation.error),
+            true
+          ),
+        };
+      }
+
+      const environmentId = inputValidation.data.environmentId;
+
+      if (!hasPermission(authentication.environmentPermissions, environmentId, "POST")) {
+        return {
+          response: responses.unauthorizedResponse(),
+        };
+      }
+
+      const actionClass: TActionClass = await createActionClass(environmentId, inputValidation.data);
+      if (auditLog) {
+        auditLog.targetId = actionClass.id;
+        auditLog.newObject = actionClass;
+      }
+      return {
+        response: responses.successResponse(actionClass),
+      };
+    } catch (error) {
+      if (error instanceof DatabaseError) {
+        return {
+          response: responses.badRequestResponse(error.message),
+        };
+      }
+      throw error;
     }
-    throw error;
-  }
-};
+  },
+  action: "created",
+  targetType: "actionClass",
+});

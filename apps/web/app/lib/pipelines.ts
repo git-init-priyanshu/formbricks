@@ -1,12 +1,17 @@
-import { INTERNAL_SECRET, WEBAPP_URL } from "@formbricks/lib/constants";
-import { TPipelineInput } from "@formbricks/types/pipelines";
+import { logger } from "@formbricks/logger";
+import { TPipelineInput } from "@/app/lib/types/pipelines";
+import { CRON_SECRET, WEBAPP_URL } from "@/lib/constants";
 
 export const sendToPipeline = async ({ event, surveyId, environmentId, response }: TPipelineInput) => {
+  if (!CRON_SECRET) {
+    throw new Error("CRON_SECRET is not set");
+  }
+
   return fetch(`${WEBAPP_URL}/api/pipeline`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": INTERNAL_SECRET,
+      "x-api-key": CRON_SECRET,
     },
     body: JSON.stringify({
       environmentId: environmentId,
@@ -15,6 +20,6 @@ export const sendToPipeline = async ({ event, surveyId, environmentId, response 
       response,
     }),
   }).catch((error) => {
-    console.error(`Error sending event to pipeline: ${error}`);
+    logger.error(error, "Error sending event to pipeline");
   });
 };

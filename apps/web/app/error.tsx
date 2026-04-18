@@ -1,27 +1,57 @@
 "use client";
 
 // Error components must be Client components
-import { Button } from "@formbricks/ui/Button";
-import { ErrorComponent } from "@formbricks/ui/ErrorComponent";
+import * as Sentry from "@sentry/nextjs";
+import { TFunction } from "i18next";
+import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { type ClientErrorType, getClientErrorData, isExpectedError } from "@formbricks/types/errors";
+import { Button } from "@/modules/ui/components/button";
+import { ErrorComponent } from "@/modules/ui/components/error-component";
 
-const Error = ({ error, reset }: { error: Error; reset: () => void }) => {
-  if (process.env.NODE_ENV === "development") {
-    console.error(error.message);
+/**
+ * Get translated error messages based on error type
+ */
+const getErrorMessages = (type: ClientErrorType, t: TFunction) => {
+  if (type === "rate_limit") {
+    return {
+      title: t("common.error_rate_limit_title"),
+      description: t("common.error_rate_limit_description"),
+    };
   }
+
+  return {
+    title: t("common.error_component_title"),
+    description: t("common.error_component_description"),
+  };
+};
+
+const ErrorBoundary = ({ error, reset }: { error: Error; reset: () => void }) => {
+  const { t } = useTranslation();
+  const errorData = getClientErrorData(error);
+  const { title, description } = getErrorMessages(errorData.type, t);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development") {
+      console.error(error.message);
+    } else if (!isExpectedError(error)) {
+      Sentry.captureException(error);
+    }
+  }, [error]);
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center">
-      <ErrorComponent />
-      <div className="mt-2">
-        <Button variant="secondary" onClick={() => reset()} className="mr-2">
-          Try again
-        </Button>
-        <Button variant="darkCTA" onClick={() => (window.location.href = "/")}>
-          Go to Dashboard
-        </Button>
-      </div>
+      <ErrorComponent title={title} description={description} />
+      {errorData.showButtons && (
+        <div className="mt-2">
+          <Button variant="secondary" onClick={() => reset()} className="mr-2">
+            {t("common.try_again")}
+          </Button>
+          <Button onClick={() => (window.location.href = "/")}>{t("common.go_to_dashboard")}</Button>
+        </div>
+      )}
     </div>
   );
 };
 
-export default Error;
+export default ErrorBoundary;

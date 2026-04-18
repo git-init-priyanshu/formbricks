@@ -1,98 +1,144 @@
 "use server";
 
-import { Organization } from "@prisma/client";
-import { getServerSession } from "next-auth";
+import { z } from "zod";
+import { ZId } from "@formbricks/types/common";
+import {
+  AuthorizationError,
+  OperationNotAllowedError,
+  ResourceNotFoundError,
+} from "@formbricks/types/errors";
+import { ZProjectUpdateInput } from "@formbricks/types/project";
+import { getMembershipByUserIdOrganizationId } from "@/lib/membership/service";
+import { getOrganization } from "@/lib/organization/service";
+import { getOrganizationProjectsCount } from "@/lib/project/service";
+import { updateUser } from "@/lib/user/service";
+import { authenticatedActionClient } from "@/lib/utils/action-client";
+import { checkAuthorizationUpdated } from "@/lib/utils/action-client/action-client-middleware";
+import { withAuditLogging } from "@/modules/ee/audit-logs/lib/handler";
+import {
+  getAccessControlPermission,
+  getOrganizationProjectsLimit,
+} from "@/modules/ee/license-check/lib/utils";
+import { createProject } from "@/modules/projects/settings/lib/project";
+import { getOrganizationsByUserId } from "./lib/organization";
+import { getProjectsByUserId } from "./lib/project";
 
-import { authOptions } from "@formbricks/lib/authOptions";
-import { SHORT_URL_BASE, WEBAPP_URL } from "@formbricks/lib/constants";
-import { hasUserEnvironmentAccess } from "@formbricks/lib/environment/auth";
-import { createMembership } from "@formbricks/lib/membership/service";
-import { createOrganization, getOrganizationByEnvironmentId } from "@formbricks/lib/organization/service";
-import { createProduct } from "@formbricks/lib/product/service";
-import { createShortUrl } from "@formbricks/lib/shortUrl/service";
-import { updateUser } from "@formbricks/lib/user/service";
-import { AuthenticationError, AuthorizationError, ResourceNotFoundError } from "@formbricks/types/errors";
+const ZCreateProjectAction = z.object({
+  organizationId: ZId,
+  data: ZProjectUpdateInput,
+});
 
-export const createShortUrlAction = async (url: string) => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthenticationError("Not authenticated");
+export const createProjectAction = authenticatedActionClient.inputSchema(ZCreateProjectAction).action(
+  withAuditLogging("created", "project", async ({ ctx, parsedInput }) => {
+    const { user } = ctx;
 
-  const regexPattern = new RegExp("^" + WEBAPP_URL);
-  const isValidUrl = regexPattern.test(url);
+    const organizationId = parsedInput.organizationId;
 
-  if (!isValidUrl) throw new Error("Only Formbricks survey URLs are allowed");
+    await checkAuthorizationUpdated({
+      userId: user.id,
+      organizationId: parsedInput.organizationId,
+      access: [
+        {
+          data: parsedInput.data,
+          schema: ZProjectUpdateInput,
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+      ],
+    });
 
-  const shortUrl = await createShortUrl(url);
-  const fullShortUrl = SHORT_URL_BASE + "/" + shortUrl.id;
-  return fullShortUrl;
-};
+    const organization = await getOrganization(organizationId);
 
-export const createOrganizationAction = async (organizationName: string): Promise<Organization> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+    if (!organization) {
+      throw new ResourceNotFoundError("Organization", organizationId);
+    }
 
-  const newOrganization = await createOrganization({
-    name: organizationName,
+    const organizationProjectsLimit = await getOrganizationProjectsLimit(organization.id);
+    const organizationProjectsCount = await getOrganizationProjectsCount(organization.id);
+
+    if (organizationProjectsCount >= organizationProjectsLimit) {
+      throw new OperationNotAllowedError("Organization workspace limit reached");
+    }
+
+    if (parsedInput.data.teamIds && parsedInput.data.teamIds.length > 0) {
+      const isAccessControlAllowed = await getAccessControlPermission(organization.id);
+
+      if (!isAccessControlAllowed) {
+        throw new OperationNotAllowedError("You do not have permission to manage roles");
+      }
+    }
+
+    const project = await createProject(parsedInput.organizationId, parsedInput.data);
+    const updatedNotificationSettings = {
+      ...user.notificationSettings,
+      alert: {
+        ...user.notificationSettings?.alert,
+      },
+    };
+
+    await updateUser(user.id, {
+      notificationSettings: updatedNotificationSettings,
+    });
+
+    ctx.auditLoggingCtx.organizationId = organizationId;
+    ctx.auditLoggingCtx.projectId = project.id;
+    ctx.auditLoggingCtx.newObject = project;
+    return project;
+  })
+);
+
+const ZGetOrganizationsForSwitcherAction = z.object({
+  organizationId: ZId, // Changed from environmentId to avoid extra query
+});
+
+/**
+ * Fetches organizations list for switcher dropdown.
+ * Called on-demand when user opens the organization switcher.
+ */
+export const getOrganizationsForSwitcherAction = authenticatedActionClient
+  .inputSchema(ZGetOrganizationsForSwitcherAction)
+  .action(async ({ ctx, parsedInput }) => {
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: parsedInput.organizationId,
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager", "member", "billing"],
+        },
+      ],
+    });
+
+    return await getOrganizationsByUserId(ctx.user.id);
   });
 
-  await createMembership(newOrganization.id, session.user.id, {
-    role: "owner",
-    accepted: true,
+const ZGetProjectsForSwitcherAction = z.object({
+  organizationId: ZId, // Changed from environmentId to avoid extra query
+});
+
+/**
+ * Fetches projects list for switcher dropdown.
+ * Called on-demand when user opens the project switcher.
+ */
+export const getProjectsForSwitcherAction = authenticatedActionClient
+  .inputSchema(ZGetProjectsForSwitcherAction)
+  .action(async ({ ctx, parsedInput }) => {
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: parsedInput.organizationId,
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager", "member", "billing"],
+        },
+      ],
+    });
+
+    // Need membership for getProjectsByUserId (1 DB query)
+    const membership = await getMembershipByUserIdOrganizationId(ctx.user.id, parsedInput.organizationId);
+    if (!membership) {
+      throw new AuthorizationError("Membership not found");
+    }
+
+    return await getProjectsByUserId(ctx.user.id, membership);
   });
-
-  const product = await createProduct(newOrganization.id, {
-    name: "My Product",
-  });
-
-  const updatedNotificationSettings = {
-    ...session.user.notificationSettings,
-    alert: {
-      ...session.user.notificationSettings?.alert,
-    },
-    weeklySummary: {
-      ...session.user.notificationSettings?.weeklySummary,
-      [product.id]: true,
-    },
-  };
-
-  await updateUser(session.user.id, {
-    notificationSettings: updatedNotificationSettings,
-  });
-
-  return newOrganization;
-};
-
-export const createProductAction = async (environmentId: string, productName: string) => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
-
-  const isAuthorized = await hasUserEnvironmentAccess(session.user.id, environmentId);
-  if (!isAuthorized) throw new AuthorizationError("Not authorized");
-
-  const organization = await getOrganizationByEnvironmentId(environmentId);
-  if (!organization) throw new ResourceNotFoundError("Organization from environment", environmentId);
-
-  const product = await createProduct(organization.id, {
-    name: productName,
-  });
-  const updatedNotificationSettings = {
-    ...session.user.notificationSettings,
-    alert: {
-      ...session.user.notificationSettings?.alert,
-    },
-    weeklySummary: {
-      ...session.user.notificationSettings?.weeklySummary,
-      [product.id]: true,
-    },
-  };
-
-  await updateUser(session.user.id, {
-    notificationSettings: updatedNotificationSettings,
-  });
-
-  // get production environment
-  const productionEnvironment = product.environments.find((environment) => environment.type === "production");
-  if (!productionEnvironment) throw new ResourceNotFoundError("Production environment", environmentId);
-
-  return productionEnvironment;
-};

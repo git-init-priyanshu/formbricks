@@ -1,50 +1,47 @@
 "use client";
 
-import { revalidateSurveyIdPath } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/actions";
 import { InboxIcon, PresentationIcon } from "lucide-react";
-import { useParams, usePathname } from "next/navigation";
-
-import { SecondaryNavigation } from "@formbricks/ui/SecondaryNavigation";
+import { usePathname } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { TSurvey } from "@formbricks/types/surveys/types";
+import { revalidateSurveyIdPath } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/actions";
+import { SecondaryNavigation } from "@/modules/ui/components/secondary-navigation";
 
 interface SurveyAnalysisNavigationProps {
   environmentId: string;
-  surveyId: string;
-  responseCount: number | null;
+  survey: TSurvey;
   activeId: string;
 }
 
 export const SurveyAnalysisNavigation = ({
   environmentId,
-  surveyId,
-  responseCount,
+  survey,
   activeId,
 }: SurveyAnalysisNavigationProps) => {
   const pathname = usePathname();
-  const params = useParams();
-  const sharingKey = params.sharingKey as string;
-  const isSharingPage = !!sharingKey;
+  const { t } = useTranslation();
 
-  const url = isSharingPage ? `/share/${sharingKey}` : `/environments/${environmentId}/surveys/${surveyId}`;
+  const url = `/environments/${environmentId}/surveys/${survey.id}`;
 
   const navigation = [
     {
       id: "summary",
-      label: "Summary",
+      label: t("common.summary"),
       icon: <PresentationIcon className="h-5 w-5" />,
       href: `${url}/summary?referer=true`,
       current: pathname?.includes("/summary"),
       onClick: () => {
-        revalidateSurveyIdPath(environmentId, surveyId);
+        revalidateSurveyIdPath(environmentId, survey.id);
       },
     },
     {
       id: "responses",
-      label: `Responses ${responseCount !== null ? `(${responseCount})` : ""}`,
+      label: t("common.responses"),
       icon: <InboxIcon className="h-5 w-5" />,
       href: `${url}/responses?referer=true`,
       current: pathname?.includes("/responses"),
       onClick: () => {
-        revalidateSurveyIdPath(environmentId, surveyId);
+        revalidateSurveyIdPath(environmentId, survey.id);
       },
     },
   ];

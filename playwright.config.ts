@@ -4,7 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
  * Read environment variables from file.
  * https://github.com/motdotla/dotenv
  */
-// require('dotenv').config();
+require("dotenv").config({ path: ".env" });
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -14,13 +14,15 @@ export default defineConfig({
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Retry on CI only */
-  retries: 0,
+  retries: process.env.CI ? 2 : 0,
   /* Timeout for each test */
   timeout: 120000,
+  /* Fail the test run after the first failure */
+  maxFailures: process.env.CI ? undefined : 1, // Allow more failures in CI to avoid cascading shutdowns
   /* Opt out of parallel tests on CI. */
-  workers: 1,
+  // workers: os.cpus().length,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: "html",
+  reporter: [["html", { outputFolder: "playwright-report", open: "never" }]],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
@@ -29,6 +31,8 @@ export default defineConfig({
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: "on-first-retry",
     permissions: ["clipboard-read", "clipboard-write"],
+    screenshot: "only-on-failure", // Capture screenshots only on test failure
+    video: "retain-on-failure", // Optionally record video on failure
   },
 
   /* Configure projects for major browsers */
@@ -36,6 +40,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      testMatch: "**/*.spec.ts",
     },
 
     // {

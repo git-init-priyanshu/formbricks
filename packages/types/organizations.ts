@@ -1,50 +1,107 @@
 import { z } from "zod";
+import { ZStorageUrl } from "./common";
 
-export const ZSubscriptionStatus = z.enum(["active", "cancelled", "inactive"]).default("inactive");
+export const ZCloudBillingPlan = z.enum(["hobby", "pro", "scale", "custom", "unknown"]);
+export type TCloudBillingPlan = z.infer<typeof ZCloudBillingPlan>;
+export const ZCloudBillingInterval = z.enum(["monthly", "yearly"]);
+export type TCloudBillingInterval = z.infer<typeof ZCloudBillingInterval>;
+export const ZOrganizationStripeSubscriptionStatus = z.enum([
+  "trialing",
+  "active",
+  "past_due",
+  "unpaid",
+  "paused",
+  "canceled",
+  "incomplete",
+  "incomplete_expired",
+]);
+export type TOrganizationStripeSubscriptionStatus = z.infer<typeof ZOrganizationStripeSubscriptionStatus>;
 
-export type TSubscriptionStatus = z.infer<typeof ZSubscriptionStatus>;
+export const ZOrganizationStripePendingChange = z.object({
+  type: z.literal("plan_change"),
+  targetPlan: z.enum(["hobby", "pro", "scale"]),
+  targetInterval: ZCloudBillingInterval.nullable(),
+  effectiveAt: z.string(),
+});
+export type TOrganizationStripePendingChange = z.infer<typeof ZOrganizationStripePendingChange>;
 
-export const ZSubscription = z.object({
-  status: ZSubscriptionStatus,
-  unlimited: z.boolean().default(false),
+export const ZOrganizationStripeBilling = z.object({
+  plan: ZCloudBillingPlan.optional(),
+  interval: ZCloudBillingInterval.nullable().optional(),
+  subscriptionStatus: ZOrganizationStripeSubscriptionStatus.nullable().optional(),
+  subscriptionId: z.string().nullable().optional(),
+  hasPaymentMethod: z.boolean().optional(),
+  features: z.array(z.string()).optional(),
+  lastStripeEventCreatedAt: z.string().nullable().optional(),
+  lastSyncedAt: z.string().nullable().optional(),
+  lastSyncedEventId: z.string().nullable().optional(),
+  trialEnd: z.string().nullable().optional(),
+  pendingChange: ZOrganizationStripePendingChange.nullable().optional(),
+});
+export type TOrganizationStripeBilling = z.infer<typeof ZOrganizationStripeBilling>;
+
+// responses can be null to support the unlimited plan
+export const ZOrganizationBillingPlanLimits = z.object({
+  projects: z.number().nullable(),
+  monthly: z.object({
+    responses: z.number().nullable(),
+  }),
 });
 
-export type TSubscription = z.infer<typeof ZSubscription>;
+export type TOrganizationBillingPlanLimits = z.infer<typeof ZOrganizationBillingPlanLimits>;
 
 export const ZOrganizationBilling = z.object({
   stripeCustomerId: z.string().nullable(),
-  features: z.object({
-    inAppSurvey: ZSubscription,
-    linkSurvey: ZSubscription,
-    userTargeting: ZSubscription,
-    multiLanguage: ZSubscription,
+  limits: ZOrganizationBillingPlanLimits.default({
+    projects: 3,
+    monthly: {
+      responses: 1500,
+    },
   }),
+  usageCycleAnchor: z.date().nullable(),
+  stripe: ZOrganizationStripeBilling.optional(),
 });
 
 export type TOrganizationBilling = z.infer<typeof ZOrganizationBilling>;
 
+export const ZOrganizationWhitelabel = z.object({
+  logoUrl: ZStorageUrl.nullable(),
+  faviconUrl: ZStorageUrl.nullish(),
+});
+
+export type TOrganizationWhitelabel = z.infer<typeof ZOrganizationWhitelabel>;
+
 export const ZOrganization = z.object({
-  id: z.string().cuid2(),
+  id: z.cuid2(),
   createdAt: z.date(),
   updatedAt: z.date(),
   name: z
-    .string({ message: "Name is required" })
+    .string({
+      error: "Organization name is required",
+    })
     .trim()
-    .min(1, { message: "Name must be at least 1 character long" }),
+    .min(1, {
+      error: "Organization name must be at least 1 character long",
+    }),
+  whitelabel: ZOrganizationWhitelabel.optional(),
   billing: ZOrganizationBilling,
+  isAISmartToolsEnabled: z.boolean().prefault(false),
+  isAIDataAnalysisEnabled: z.boolean().prefault(false),
 });
 
 export const ZOrganizationCreateInput = z.object({
-  id: z.string().cuid2().optional(),
+  id: z.cuid2().optional(),
   name: z.string(),
-  billing: ZOrganizationBilling.optional(),
 });
 
 export type TOrganizationCreateInput = z.infer<typeof ZOrganizationCreateInput>;
 
 export const ZOrganizationUpdateInput = z.object({
   name: z.string(),
+  whitelabel: ZOrganizationWhitelabel.optional(),
   billing: ZOrganizationBilling.optional(),
+  isAISmartToolsEnabled: z.boolean().optional(),
+  isAIDataAnalysisEnabled: z.boolean().optional(),
 });
 
 export type TOrganizationUpdateInput = z.infer<typeof ZOrganizationUpdateInput>;

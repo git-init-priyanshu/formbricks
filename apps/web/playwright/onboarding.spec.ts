@@ -1,41 +1,64 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "./lib/fixtures";
+import { organizations } from "./utils/mock";
 
-import { signUpAndLogin } from "./utils/helper";
-import { organizations, users } from "./utils/mock";
-
-const { productName } = organizations.onboarding[0];
+const { projectName } = organizations.onboarding[0];
 
 test.describe("Onboarding Flow Test", async () => {
-  test("link survey", async ({ page }) => {
-    const { name, email, password } = users.onboarding[0];
-    await signUpAndLogin(page, name, email, password);
-    await page.waitForURL("/onboarding");
-    await expect(page).toHaveURL("/onboarding");
+  test("link survey", async ({ page, users }) => {
+    const user = await users.create({ withoutProject: true });
+    await user.login();
 
-    await page.getByRole("button", { name: "Link Surveys Create a new" }).click();
-    await page.getByRole("button", { name: "Collect Feedback Collect" }).click();
-    await page.waitForTimeout(2000);
-    await page.getByRole("button", { name: "Publish" }).click();
+    await page.waitForURL(/\/organizations\/[^/]+\/workspaces\/new\/mode/);
+
+    await page.getByRole("button", { name: "Formbricks Surveys Multi-" }).click();
+    await page.getByRole("button", { name: "Link & email surveys" }).click();
+    // await page.getByRole("button", { name: "B2B and B2C E-Commerce" }).click();
+    await page.getByPlaceholder("e.g. Formbricks").click();
+    await page.getByPlaceholder("e.g. Formbricks").fill(projectName);
+    await page.locator("#form-next-button").click();
 
     await page.waitForURL(/\/environments\/[^/]+\/surveys/);
-    await expect(page.getByText(productName)).toBeVisible();
+    await expect(page.getByText(projectName)).toBeVisible();
   });
 
-  test("website survey", async ({ page }) => {
-    const { name, email, password } = users.onboarding[1];
-    await signUpAndLogin(page, name, email, password);
-    await page.waitForURL("/onboarding");
-    await expect(page).toHaveURL("/onboarding");
-    await page.getByRole("button", { name: "Website Surveys Run a survey" }).click();
+  test("website survey", async ({ page, users }) => {
+    const user = await users.create({ withoutProject: true });
+    await user.login();
 
-    await page.getByRole("button", { name: "Skip" }).click();
-    await page.getByRole("button", { name: "Skip" }).click();
+    await page.waitForURL(/\/organizations\/[^/]+\/workspaces\/new\/mode/);
 
-    await page.getByRole("button", { name: "Skip" }).click();
-    await page.locator("input").click();
-    await page.locator("input").fill("test@gmail.com");
-    await page.getByRole("button", { name: "Invite" }).click();
+    await page.getByRole("button", { name: "Formbricks Surveys Multi-" }).click();
+    await page.getByRole("button", { name: "In-product surveys" }).click();
+    // await page.getByRole("button", { name: "B2B and B2C E-Commerce" }).click();
+    await page.getByPlaceholder("e.g. Formbricks").click();
+    await page.getByPlaceholder("e.g. Formbricks").fill(projectName);
+    await page.locator("#form-next-button").click();
+
+    await page.getByRole("button", { name: "I will do it later" }).click();
+
     await page.waitForURL(/\/environments\/[^/]+\/surveys/);
-    await expect(page.getByText(productName)).toBeVisible();
+    await expect(page.getByText(projectName)).toBeVisible();
+  });
+});
+
+test.describe("CX Onboarding", async () => {
+  test("first survey creation", async ({ page, users }) => {
+    const user = await users.create({ withoutProject: true });
+    await user.login();
+
+    await page.waitForURL(/\/organizations\/[^/]+\/workspaces\/new\/mode/);
+    await page.getByRole("button", { name: "Formbricks CX Surveys and" }).click();
+
+    await page.getByPlaceholder("e.g. Formbricks").click();
+    await page.getByPlaceholder("e.g. Formbricks").fill(projectName);
+    await page.locator("#form-next-button").click();
+
+    await page.getByRole("button", { name: "NPS Implement proven best" }).click();
+
+    await page.waitForURL(/\/environments\/[^/]+\/surveys\/[^/]+\/edit(\?.*)mode=cx$/);
+    await page.getByRole("button", { name: "Save & Close" }).click();
+
+    await page.waitForURL(/\/environments\/[^/]+\/surveys\/[^/]+\/summary(\?.*)?$/);
   });
 });

@@ -1,57 +1,137 @@
 "use server";
 
-import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
-
-import { authOptions } from "@formbricks/lib/authOptions";
-import { getResponseCountBySurveyId, getResponses, getSurveySummary } from "@formbricks/lib/response/service";
-import { canUserAccessSurvey } from "@formbricks/lib/survey/auth";
-import { AuthorizationError } from "@formbricks/types/errors";
-import { TResponse, TResponseFilterCriteria } from "@formbricks/types/responses";
-import { TSurveySummary } from "@formbricks/types/surveys";
+import { z } from "zod";
+import { ZId } from "@formbricks/types/common";
+import { ZResponseFilterCriteria } from "@formbricks/types/responses";
+import { getDisplaysBySurveyIdWithContact } from "@/lib/display/service";
+import { getResponseCountBySurveyId, getResponses } from "@/lib/response/service";
+import { authenticatedActionClient } from "@/lib/utils/action-client";
+import { checkAuthorizationUpdated } from "@/lib/utils/action-client/action-client-middleware";
+import { getOrganizationIdFromSurveyId, getProjectIdFromSurveyId } from "@/lib/utils/helper";
+import { getSurveySummary } from "./summary/lib/surveySummary";
 
 export const revalidateSurveyIdPath = async (environmentId: string, surveyId: string) => {
   revalidatePath(`/environments/${environmentId}/surveys/${surveyId}`);
 };
 
-export const getResponsesAction = async (
-  surveyId: string,
-  limit: number = 10,
-  offset: number = 0,
-  filterCriteria?: TResponseFilterCriteria
-): Promise<TResponse[]> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+const ZGetResponsesAction = z.object({
+  surveyId: ZId,
+  limit: z.number().optional(),
+  offset: z.number().optional(),
+  filterCriteria: ZResponseFilterCriteria.optional(),
+});
 
-  const isAuthorized = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!isAuthorized) throw new AuthorizationError("Not authorized");
+export const getResponsesAction = authenticatedActionClient
+  .inputSchema(ZGetResponsesAction)
+  .action(async ({ ctx, parsedInput }) => {
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: await getOrganizationIdFromSurveyId(parsedInput.surveyId),
+      access: [
+        {
+          type: "organization",
+          schema: ZResponseFilterCriteria,
+          data: parsedInput.filterCriteria,
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "read",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+        },
+      ],
+    });
 
-  const responses = await getResponses(surveyId, limit, offset, filterCriteria);
-  return responses;
-};
+    return getResponses(
+      parsedInput.surveyId,
+      parsedInput.limit,
+      parsedInput.offset,
+      parsedInput.filterCriteria
+    );
+  });
 
-export const getSurveySummaryAction = async (
-  surveyId: string,
-  filterCriteria?: TResponseFilterCriteria
-): Promise<TSurveySummary> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+const ZGetSurveySummaryAction = z.object({
+  surveyId: ZId,
+  filterCriteria: ZResponseFilterCriteria.optional(),
+});
 
-  const isAuthorized = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!isAuthorized) throw new AuthorizationError("Not authorized");
+export const getSurveySummaryAction = authenticatedActionClient
+  .inputSchema(ZGetSurveySummaryAction)
+  .action(async ({ ctx, parsedInput }) => {
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: await getOrganizationIdFromSurveyId(parsedInput.surveyId),
+      access: [
+        {
+          type: "organization",
+          schema: ZResponseFilterCriteria,
+          data: parsedInput.filterCriteria,
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "read",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+        },
+      ],
+    });
+    return getSurveySummary(parsedInput.surveyId, parsedInput.filterCriteria);
+  });
 
-  return await getSurveySummary(surveyId, filterCriteria);
-};
+const ZGetResponseCountAction = z.object({
+  surveyId: ZId,
+  filterCriteria: ZResponseFilterCriteria.optional(),
+});
 
-export const getResponseCountAction = async (
-  surveyId: string,
-  filters?: TResponseFilterCriteria
-): Promise<number> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+export const getResponseCountAction = authenticatedActionClient
+  .inputSchema(ZGetResponseCountAction)
+  .action(async ({ ctx, parsedInput }) => {
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: await getOrganizationIdFromSurveyId(parsedInput.surveyId),
+      access: [
+        {
+          type: "organization",
+          schema: ZResponseFilterCriteria,
+          data: parsedInput.filterCriteria,
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "read",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+        },
+      ],
+    });
 
-  const isAuthorized = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!isAuthorized) throw new AuthorizationError("Not authorized");
+    return getResponseCountBySurveyId(parsedInput.surveyId, parsedInput.filterCriteria);
+  });
 
-  return await getResponseCountBySurveyId(surveyId, filters);
-};
+const ZGetDisplaysWithContactAction = z.object({
+  surveyId: ZId,
+  limit: z.int().min(1).max(100),
+  offset: z.int().nonnegative(),
+});
+
+export const getDisplaysWithContactAction = authenticatedActionClient
+  .inputSchema(ZGetDisplaysWithContactAction)
+  .action(async ({ ctx, parsedInput }) => {
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: await getOrganizationIdFromSurveyId(parsedInput.surveyId),
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "read",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+        },
+      ],
+    });
+
+    return getDisplaysBySurveyIdWithContact(parsedInput.surveyId, parsedInput.limit, parsedInput.offset);
+  });

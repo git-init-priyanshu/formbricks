@@ -1,54 +1,106 @@
 "use server";
 
-import { getServerSession } from "next-auth";
+import { z } from "zod";
+import { ZId } from "@formbricks/types/common";
+import { ResourceNotFoundError } from "@formbricks/types/errors";
+import { ZResponseFilterCriteria } from "@formbricks/types/responses";
+import { capturePostHogEvent } from "@/lib/posthog";
+import { getResponseDownloadFile, getResponseFilteringValues } from "@/lib/response/service";
+import { getSurvey } from "@/lib/survey/service";
+import { getTagsByEnvironmentId } from "@/lib/tag/service";
+import { authenticatedActionClient } from "@/lib/utils/action-client";
+import { checkAuthorizationUpdated } from "@/lib/utils/action-client/action-client-middleware";
+import { getOrganizationIdFromSurveyId, getProjectIdFromSurveyId } from "@/lib/utils/helper";
+import { getIsQuotasEnabled } from "@/modules/ee/license-check/lib/utils";
+import { getQuotas } from "@/modules/ee/quotas/lib/quotas";
+import { getOrganizationBilling } from "@/modules/survey/lib/survey";
 
-import { authOptions } from "@formbricks/lib/authOptions";
-import { getResponseDownloadUrl, getResponseFilteringValues } from "@formbricks/lib/response/service";
-import { canUserAccessSurvey, verifyUserRoleAccess } from "@formbricks/lib/survey/auth";
-import { updateSurvey } from "@formbricks/lib/survey/service";
-import { getTagsByEnvironmentId } from "@formbricks/lib/tag/service";
-import { AuthorizationError } from "@formbricks/types/errors";
-import { TResponseFilterCriteria } from "@formbricks/types/responses";
-import { TSurvey } from "@formbricks/types/surveys";
+const ZGetResponsesDownloadUrlAction = z.object({
+  surveyId: ZId,
+  format: z.union([z.literal("csv"), z.literal("xlsx")]),
+  filterCriteria: ZResponseFilterCriteria,
+});
 
-export const getResponsesDownloadUrlAction = async (
-  surveyId: string,
-  format: "csv" | "xlsx",
-  filterCritera: TResponseFilterCriteria
-): Promise<string> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+export const getResponsesDownloadUrlAction = authenticatedActionClient
+  .inputSchema(ZGetResponsesDownloadUrlAction)
+  .action(async ({ ctx, parsedInput }) => {
+    const organizationId = await getOrganizationIdFromSurveyId(parsedInput.surveyId);
 
-  const isAuthorized = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!isAuthorized) throw new AuthorizationError("Not authorized");
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId,
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "read",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+        },
+      ],
+    });
 
-  return getResponseDownloadUrl(surveyId, format, filterCritera);
-};
+    const result = await getResponseDownloadFile(
+      parsedInput.surveyId,
+      parsedInput.format,
+      parsedInput.filterCriteria
+    );
 
-export const getSurveyFilterDataAction = async (surveyId: string, environmentId: string) => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+    capturePostHogEvent(ctx.user.id, "responses_exported", {
+      survey_id: parsedInput.surveyId,
+      format: parsedInput.format,
+      filter_applied: Object.keys(parsedInput.filterCriteria ?? {}).length > 0,
+      organization_id: organizationId,
+    });
 
-  const isAuthorized = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!isAuthorized) throw new AuthorizationError("Not authorized");
+    return result;
+  });
 
-  const [tags, { personAttributes: attributes, meta, hiddenFields }] = await Promise.all([
-    getTagsByEnvironmentId(environmentId),
-    getResponseFilteringValues(surveyId),
-  ]);
+const ZGetSurveyFilterDataAction = z.object({
+  surveyId: ZId,
+});
 
-  return { environmentTags: tags, attributes, meta, hiddenFields };
-};
+export const getSurveyFilterDataAction = authenticatedActionClient
+  .inputSchema(ZGetSurveyFilterDataAction)
+  .action(async ({ ctx, parsedInput }) => {
+    const survey = await getSurvey(parsedInput.surveyId);
 
-export const updateSurveyAction = async (survey: TSurvey): Promise<TSurvey> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+    if (!survey) {
+      throw new ResourceNotFoundError("Survey", parsedInput.surveyId);
+    }
 
-  const isAuthorized = await canUserAccessSurvey(session.user.id, survey.id);
-  if (!isAuthorized) throw new AuthorizationError("Not authorized");
+    const organizationId = await getOrganizationIdFromSurveyId(parsedInput.surveyId);
 
-  const { hasCreateOrUpdateAccess } = await verifyUserRoleAccess(survey.environmentId, session.user.id);
-  if (!hasCreateOrUpdateAccess) throw new AuthorizationError("Not authorized");
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: organizationId,
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "read",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+        },
+      ],
+    });
 
-  return await updateSurvey(survey);
-};
+    const organizationBilling = await getOrganizationBilling(organizationId);
+    if (!organizationBilling) {
+      throw new ResourceNotFoundError("Organization", organizationId);
+    }
+
+    const isQuotasAllowed = await getIsQuotasEnabled(organizationId);
+
+    const [tags, { contactAttributes: attributes, meta, hiddenFields }, quotas = []] = await Promise.all([
+      getTagsByEnvironmentId(survey.environmentId),
+      getResponseFilteringValues(parsedInput.surveyId),
+      isQuotasAllowed ? getQuotas(parsedInput.surveyId) : [],
+    ]);
+
+    return { environmentTags: tags, attributes, meta, hiddenFields, quotas };
+  });

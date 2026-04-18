@@ -16,8 +16,47 @@ export type TStringOperator = (typeof STRING_OPERATORS)[number];
 export const ZBaseOperator = z.enum(BASE_OPERATORS);
 export type TBaseOperator = z.infer<typeof ZBaseOperator>;
 
-// An attribute filter can have these operators
-export const ATTRIBUTE_OPERATORS = [
+// operators for date filters
+export const DATE_OPERATORS = [
+  "isOlderThan",
+  "isNewerThan",
+  "isBefore",
+  "isAfter",
+  "isBetween",
+  "isSameDay",
+  "isSet",
+  "isNotSet",
+] as const;
+
+// time units for relative date operators
+export const TIME_UNITS = ["days", "weeks", "months", "years"] as const;
+
+// Operators for string type attributes only (text operations, no arithmetic)
+export const STRING_TYPE_OPERATORS = [
+  "equals",
+  "notEquals",
+  "isSet",
+  "isNotSet",
+  "contains",
+  "doesNotContain",
+  "startsWith",
+  "endsWith",
+] as const;
+
+// Operators for number type attributes (arithmetic + basic)
+export const NUMBER_TYPE_OPERATORS = [
+  "equals",
+  "notEquals",
+  "lessThan",
+  "lessEqual",
+  "greaterThan",
+  "greaterEqual",
+  "isSet",
+  "isNotSet",
+] as const;
+
+// Combined operators for backwards compatibility (used in validation)
+export const STRING_ATTRIBUTE_OPERATORS = [
   ...BASE_OPERATORS,
   "isSet",
   "isNotSet",
@@ -27,20 +66,10 @@ export const ATTRIBUTE_OPERATORS = [
   "endsWith",
 ] as const;
 
-// the person filter currently has the same operators as the attribute filter
-// but we might want to add more operators in the future, so we keep it separated
-export const PERSON_OPERATORS = ATTRIBUTE_OPERATORS;
+// An attribute filter can have these operators (including date operators)
+export const ATTRIBUTE_OPERATORS = [...STRING_ATTRIBUTE_OPERATORS, ...DATE_OPERATORS] as const;
 
-// A metric is always only associated with an action filter
-// Metrics are used to evaluate the value of an action filter, from the database
-export const ACTION_METRICS = [
-  "lastQuarterCount",
-  "lastMonthCount",
-  "lastWeekCount",
-  "occuranceCount",
-  "lastOccurranceDaysAgo",
-  "firstOccurranceDaysAgo",
-] as const;
+export const PERSON_OPERATORS = STRING_TYPE_OPERATORS;
 
 // operators for segment filters
 export const SEGMENT_OPERATORS = ["userIsIn", "userIsNotIn"] as const;
@@ -63,52 +92,41 @@ export type TSegmentOperator = z.infer<typeof ZSegmentOperator>;
 export const ZDeviceOperator = z.enum(DEVICE_OPERATORS);
 export type TDeviceOperator = z.infer<typeof ZDeviceOperator>;
 
+export const ZDateOperator = z.enum(DATE_OPERATORS);
+export type TDateOperator = z.infer<typeof ZDateOperator>;
+
+// Type guard to check if an operator is a date operator
+export const isDateOperator = (operator: TAttributeOperator): operator is TDateOperator => {
+  return (DATE_OPERATORS as readonly string[]).includes(operator);
+};
+
+export const ZTimeUnit = z.enum(TIME_UNITS);
+export type TTimeUnit = z.infer<typeof ZTimeUnit>;
+
 export type TAllOperators = (typeof ALL_OPERATORS)[number];
 
-export const ZActionMetric = z.enum(ACTION_METRICS);
-export type TActionMetric = z.infer<typeof ZActionMetric>;
+// Relative date value for operators like "isOlderThan" and "isNewerThan"
+export const ZRelativeDateValue = z.object({
+  amount: z.number(),
+  unit: ZTimeUnit,
+});
+export type TRelativeDateValue = z.infer<typeof ZRelativeDateValue>;
 
-export const ZSegmentFilterValue = z.union([z.string(), z.number()]);
+export const ZSegmentFilterValue = z.union([
+  z.string(),
+  z.number(),
+  ZRelativeDateValue,
+  z.tuple([z.string(), z.string()]), // for "isBetween" operator
+]);
 export type TSegmentFilterValue = z.infer<typeof ZSegmentFilterValue>;
 
-// the type of the root of a filter
-export const ZSegmentFilterRootType = z.enum(["attribute", "action", "segment", "device", "person"]);
-
-// Root of the filter, this defines the type of the filter and the metadata associated with it
-// For example, if the root is "attribute", the attributeClassName is required
-// if the root is "action", the actionClassId is required.
-export const ZSegmentFilterRoot = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal(ZSegmentFilterRootType.Enum.attribute),
-    attributeClassId: z.string(),
-  }),
-  z.object({
-    type: z.literal(ZSegmentFilterRootType.Enum.person),
-    userId: z.string(),
-  }),
-  z.object({
-    type: z.literal(ZSegmentFilterRootType.Enum.action),
-    actionClassId: z.string(),
-  }),
-  z.object({
-    type: z.literal(ZSegmentFilterRootType.Enum.segment),
-    segmentId: z.string(),
-  }),
-  z.object({
-    type: z.literal(ZSegmentFilterRootType.Enum.device),
-    deviceType: z.string(),
-  }),
-]);
-
 // Each filter has a qualifier, which usually contains the operator for evaluating the filter.
-// Only in the case of action filters, the metric is also included in the qualifier
-
 // Attribute filter -> root will always have type "attribute"
 export const ZSegmentAttributeFilter = z.object({
-  id: z.string().cuid2(),
+  id: z.cuid2(),
   root: z.object({
     type: z.literal("attribute"),
-    attributeClassName: z.string(),
+    contactAttributeKey: z.string(),
   }),
   value: ZSegmentFilterValue,
   qualifier: z.object({
@@ -119,7 +137,7 @@ export type TSegmentAttributeFilter = z.infer<typeof ZSegmentAttributeFilter>;
 
 // Person filter -> root will always have type "person"
 export const ZSegmentPersonFilter = z.object({
-  id: z.string().cuid2(),
+  id: z.cuid2(),
   root: z.object({
     type: z.literal("person"),
     personIdentifier: z.string(),
@@ -131,44 +149,9 @@ export const ZSegmentPersonFilter = z.object({
 });
 export type TSegmentPersonFilter = z.infer<typeof ZSegmentPersonFilter>;
 
-// Action filter -> root will always have type "action"
-// Action filters also have the metric along with the operator in the qualifier of the filter
-export const ZSegmentActionFilter = z
-  .object({
-    id: z.string().cuid2(),
-    root: z.object({
-      type: z.literal("action"),
-      actionClassId: z.string(),
-    }),
-    value: ZSegmentFilterValue,
-    qualifier: z.object({
-      metric: z.enum(ACTION_METRICS),
-      operator: ZBaseOperator,
-    }),
-  })
-  .refine(
-    (actionFilter) => {
-      const { value } = actionFilter;
-
-      // if the value is not type of number, it's invalid
-
-      const isValueNumber = typeof value === "number";
-
-      if (!isValueNumber) {
-        return false;
-      }
-
-      return true;
-    },
-    {
-      message: "Value must be a number for action filters",
-    }
-  );
-export type TSegmentActionFilter = z.infer<typeof ZSegmentActionFilter>;
-
 // Segment filter -> root will always have type "segment"
 export const ZSegmentSegmentFilter = z.object({
-  id: z.string().cuid2(),
+  id: z.cuid2(),
   root: z.object({
     type: z.literal("segment"),
     segmentId: z.string(),
@@ -182,7 +165,7 @@ export type TSegmentSegmentFilter = z.infer<typeof ZSegmentSegmentFilter>;
 
 // Device filter -> root will always have type "device"
 export const ZSegmentDeviceFilter = z.object({
-  id: z.string().cuid2(),
+  id: z.cuid2(),
   root: z.object({
     type: z.literal("device"),
     deviceType: z.string(),
@@ -197,28 +180,8 @@ export type TSegmentDeviceFilter = z.infer<typeof ZSegmentDeviceFilter>;
 
 // A segment filter is a union of all the different filter types
 export const ZSegmentFilter = z
-  .union([
-    ZSegmentActionFilter,
-    ZSegmentAttributeFilter,
-    ZSegmentPersonFilter,
-    ZSegmentSegmentFilter,
-    ZSegmentDeviceFilter,
-  ])
+  .union([ZSegmentAttributeFilter, ZSegmentPersonFilter, ZSegmentSegmentFilter, ZSegmentDeviceFilter])
   // we need to refine the filter to make sure that the filter is valid
-  .refine(
-    (filter) => {
-      if (filter.root.type === "action") {
-        if (!("metric" in filter.qualifier)) {
-          return false;
-        }
-      }
-
-      return true;
-    },
-    {
-      message: "Metric operator must be specified for action filters",
-    }
-  )
   .refine(
     (filter) => {
       // if the operator is an arithmentic operator, the value must be a number
@@ -237,10 +200,34 @@ export const ZSegmentFilter = z
         return false;
       }
 
+      // if the operator is a relative date operator (isOlderThan, isNewerThan), value must be an object with amount and unit
+      if (
+        (filter.qualifier.operator === "isOlderThan" || filter.qualifier.operator === "isNewerThan") &&
+        (typeof filter.value !== "object" || !("amount" in filter.value) || !("unit" in filter.value))
+      ) {
+        return false;
+      }
+
+      // if the operator is an absolute date operator (isBefore, isAfter, isSameDay), value must be a string
+      if (
+        (filter.qualifier.operator === "isBefore" ||
+          filter.qualifier.operator === "isAfter" ||
+          filter.qualifier.operator === "isSameDay") &&
+        typeof filter.value !== "string"
+      ) {
+        return false;
+      }
+
+      // if the operator is isBetween, value must be a tuple of two strings
+      if (filter.qualifier.operator === "isBetween" && !Array.isArray(filter.value)) {
+        return false;
+      }
+
       return true;
     },
     {
-      message: "Value must be a string for string operators and a number for arithmetic operators",
+      error:
+        "Value must be a string for string operators, a number for arithmetic operators, and an object for relative date operators",
     }
   )
   .refine(
@@ -253,6 +240,31 @@ export const ZSegmentFilter = z
         return true;
       }
 
+      // for relative date operators, validate the object structure
+      if (operator === "isOlderThan" || operator === "isNewerThan") {
+        if (typeof value === "object" && "amount" in value && "unit" in value) {
+          return value.amount > 0 && TIME_UNITS.includes(value.unit);
+        }
+        return false;
+      }
+
+      // for isBetween, validate we have a tuple with two non-empty strings
+      if (operator === "isBetween") {
+        if (!Array.isArray(value)) return false;
+        return (
+          typeof value[0] === "string" &&
+          typeof value[1] === "string" &&
+          value[0].length > 0 &&
+          value[1].length > 0
+        );
+      }
+
+      // for absolute date operators, validate we have a non-empty string
+      if (operator === "isBefore" || operator === "isAfter" || operator === "isSameDay") {
+        return typeof value === "string" && value.length > 0;
+      }
+
+      // for string values, check they're not empty
       if (typeof value === "string") {
         return value.length > 0;
       }
@@ -260,7 +272,7 @@ export const ZSegmentFilter = z
       return true;
     },
     {
-      message: "Invalid value for filters: please check your filter values",
+      error: "Invalid value for filters: please check your filter values",
     }
   );
 
@@ -270,13 +282,23 @@ export const ZSegmentConnector = z.enum(["and", "or"]).nullable();
 
 export type TSegmentConnector = z.infer<typeof ZSegmentConnector>;
 
-export type TBaseFilter = {
+export interface TBaseFilter {
   id: string;
   connector: TSegmentConnector;
   resource: TSegmentFilter | TBaseFilters;
-};
+}
 
 export type TBaseFilters = TBaseFilter[];
+
+export const ZBaseFilter: z.ZodType<TBaseFilter> = z.lazy(() =>
+  z.object({
+    id: z.cuid2(),
+    connector: ZSegmentConnector,
+    resource: z.union([ZSegmentFilter, ZBaseFilters]),
+  })
+);
+
+export const ZBaseFilters: z.ZodType<TBaseFilters> = z.lazy(() => z.array(ZBaseFilter));
 
 // here again, we refine the filters to make sure that the filters are valid
 const refineFilters = (filters: TBaseFilters): boolean => {
@@ -287,12 +309,10 @@ const refineFilters = (filters: TBaseFilters): boolean => {
 
     if (Array.isArray(group.resource)) {
       result = refineFilters(group.resource);
-    } else {
+    } else if (i === 0 && group.connector !== null) {
       // if the connector for a "first" group is not null, it's invalid
-      if (i === 0 && group.connector !== null) {
-        result = false;
-        break;
-      }
+      result = false;
+      break;
     }
   }
 
@@ -301,26 +321,27 @@ const refineFilters = (filters: TBaseFilters): boolean => {
 
 // The filters can be nested, so we need to use z.lazy to define the type
 // more on recusrsive types -> https://zod.dev/?id=recursive-types
-
-// TODO: Figure out why this is not working, and then remove the ts-ignore
-// @ts-ignore
 export const ZSegmentFilters: z.ZodType<TBaseFilters> = z
   .array(
     z.object({
-      id: z.string().cuid2(),
+      id: z.cuid2(),
       connector: ZSegmentConnector,
       resource: z.union([ZSegmentFilter, z.lazy(() => ZSegmentFilters)]),
     })
   )
   .refine(refineFilters, {
-    message: "Invalid filters applied",
+    error: "Invalid filters applied",
   });
+
+const ZRequiredSegmentFilters = ZSegmentFilters.refine((filters) => filters.length > 0, {
+  error: "At least one filter is required",
+});
 
 export const ZSegment = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().nullable(),
-  isPrivate: z.boolean().default(true),
+  isPrivate: z.boolean().prefault(true),
   filters: ZSegmentFilters,
   environmentId: z.string(),
   createdAt: z.date(),
@@ -332,40 +353,42 @@ export const ZSegmentCreateInput = z.object({
   environmentId: z.string(),
   title: z.string(),
   description: z.string().optional(),
-  isPrivate: z.boolean().default(true),
-  filters: ZSegmentFilters,
+  isPrivate: z.boolean().prefault(true),
+  filters: ZRequiredSegmentFilters,
   surveyId: z.string(),
 });
 
 export type TSegmentCreateInput = z.infer<typeof ZSegmentCreateInput>;
 
 export type TSegment = z.infer<typeof ZSegment>;
-export type TSegmentWithSurveyNames = TSegment & {
-  activeSurveys: string[];
-  inactiveSurveys: string[];
+export interface TSegmentSurveyReference {
+  id: string;
+  name: string;
+}
+export type TSegmentWithSurveyRefs = TSegment & {
+  activeSurveys: TSegmentSurveyReference[];
+  inactiveSurveys: TSegmentSurveyReference[];
 };
 
 export const ZSegmentUpdateInput = z
   .object({
     title: z.string(),
     description: z.string().nullable(),
-    isPrivate: z.boolean().default(true),
-    filters: ZSegmentFilters,
+    isPrivate: z.boolean().prefault(true),
+    filters: ZRequiredSegmentFilters,
     surveys: z.array(z.string()),
   })
   .partial();
 
 export type TSegmentUpdateInput = z.infer<typeof ZSegmentUpdateInput>;
 
-export type TEvaluateSegmentUserAttributeData = {
-  [attributeClassName: string]: string | number;
-};
+// Record of the contact attribute key and the value
+export type TEvaluateSegmentUserAttributeData = Record<string, string | number>;
 
-export type TEvaluateSegmentUserData = {
-  personId: string;
+export interface TEvaluateSegmentUserData {
+  contactId: string;
   userId: string;
   environmentId: string;
   attributes: TEvaluateSegmentUserAttributeData;
-  actionIds: string[];
   deviceType: "phone" | "desktop";
-};
+}

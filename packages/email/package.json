@@ -1,19 +1,30 @@
 {
   "name": "@formbricks/email",
   "version": "1.0.0",
-  "description": "Email package",
-  "main": "./index.tsx",
+  "private": true,
+  "description": "Email templates for Formbricks with React Email preview server",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
+    "dev": "email dev --port 3456",
+    "build": "tsc --noEmit",
+    "lint": "eslint src --fix --ext .ts,.tsx",
     "clean": "rimraf .turbo node_modules dist"
   },
   "dependencies": {
-    "@formbricks/lib": "workspace:*",
+    "@react-email/components": "1.0.10",
+    "react-email": "5.2.10"
+  },
+  "devDependencies": {
+    "@formbricks/config-typescript": "workspace:*",
+    "@formbricks/eslint-config": "workspace:*",
     "@formbricks/types": "workspace:*",
-    "@formbricks/ui": "workspace:*",
-    "@react-email/components": "^0.0.19",
-    "@react-email/render": "^0.0.15",
-    "lucide-react": "^0.379.0",
-    "nodemailer": "^6.9.13",
-    "react-email": "^2.1.4"
+    "@react-email/preview-server": "5.2.10",
+    "autoprefixer": "10.4.27",
+    "clsx": "2.1.1",
+    "postcss": "8.5.8",
+    "tailwind-merge": "3.5.0",
+    "tailwindcss": "3.4.19"
   }
 }

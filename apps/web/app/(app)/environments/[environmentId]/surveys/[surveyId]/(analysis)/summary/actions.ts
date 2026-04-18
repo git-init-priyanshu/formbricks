@@ -1,102 +1,255 @@
 "use server";
 
+import { z } from "zod";
+import { ZId } from "@formbricks/types/common";
+import { OperationNotAllowedError, ResourceNotFoundError, UnknownError } from "@formbricks/types/errors";
 import { getEmailTemplateHtml } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/summary/lib/emailTemplate";
-import { customAlphabet } from "nanoid";
-import { getServerSession } from "next-auth";
+import { getSurvey, updateSurvey } from "@/lib/survey/service";
+import { authenticatedActionClient } from "@/lib/utils/action-client";
+import { checkAuthorizationUpdated } from "@/lib/utils/action-client/action-client-middleware";
+import { convertToCsv } from "@/lib/utils/file-conversion";
+import { getOrganizationIdFromSurveyId, getProjectIdFromSurveyId } from "@/lib/utils/helper";
+import { withAuditLogging } from "@/modules/ee/audit-logs/lib/handler";
+import { generatePersonalLinks } from "@/modules/ee/contacts/lib/contacts";
+import { getIsContactsEnabled } from "@/modules/ee/license-check/lib/utils";
+import { getOrganizationLogoUrl } from "@/modules/ee/whitelabel/email-customization/lib/organization";
+import { sendEmbedSurveyPreviewEmail } from "@/modules/email";
+import { deleteResponsesAndDisplaysForSurvey } from "./lib/survey";
 
-import { sendEmbedSurveyPreviewEmail } from "@formbricks/email";
-import { authOptions } from "@formbricks/lib/authOptions";
-import { canUserAccessSurvey } from "@formbricks/lib/survey/auth";
-import { getSurvey, updateSurvey } from "@formbricks/lib/survey/service";
-import { AuthenticationError, AuthorizationError, ResourceNotFoundError } from "@formbricks/types/errors";
+const ZSendEmbedSurveyPreviewEmailAction = z.object({
+  surveyId: ZId,
+});
 
-export const sendEmbedSurveyPreviewEmailAction = async (surveyId: string) => {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    throw new AuthenticationError("Not authenticated");
-  }
+export const sendEmbedSurveyPreviewEmailAction = authenticatedActionClient
+  .inputSchema(ZSendEmbedSurveyPreviewEmailAction)
+  .action(async ({ ctx, parsedInput }) => {
+    const organizationId = await getOrganizationIdFromSurveyId(parsedInput.surveyId);
+    const organizationLogoUrl = await getOrganizationLogoUrl(organizationId);
 
-  const survey = await getSurvey(surveyId);
-  if (!survey) {
-    throw new ResourceNotFoundError("Survey", surveyId);
-  }
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId,
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "read",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+        },
+      ],
+    });
 
-  const isUserAuthorized = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!isUserAuthorized) {
-    throw new AuthorizationError("Not authorized");
-  }
-  const rawEmailHtml = await getEmailTemplateHtml(surveyId);
-  const emailHtml = rawEmailHtml
-    .replaceAll("?preview=true&amp;", "?")
-    .replaceAll("?preview=true&;", "?")
-    .replaceAll("?preview=true", "");
+    const survey = await getSurvey(parsedInput.surveyId);
+    if (!survey) {
+      throw new ResourceNotFoundError("Survey", parsedInput.surveyId);
+    }
 
-  return await sendEmbedSurveyPreviewEmail(
-    session.user.email,
-    "Formbricks Email Survey Preview",
-    emailHtml,
-    survey.environmentId
-  );
-};
+    const rawEmailHtml = await getEmailTemplateHtml(parsedInput.surveyId, ctx.user.locale);
+    const emailHtml = rawEmailHtml
+      .replaceAll("?preview=true&amp;", "?")
+      .replaceAll("?preview=true&;", "?")
+      .replaceAll("?preview=true", "");
 
-export const generateResultShareUrlAction = async (surveyId: string): Promise<string> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+    return await sendEmbedSurveyPreviewEmail(
+      ctx.user.email,
+      emailHtml,
+      survey.environmentId,
+      ctx.user.locale,
+      organizationLogoUrl || ""
+    );
+  });
 
-  const hasUserSurveyAccess = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!hasUserSurveyAccess) throw new AuthorizationError("Not authorized");
+const ZResetSurveyAction = z.object({
+  surveyId: ZId,
+  projectId: ZId,
+});
 
-  const survey = await getSurvey(surveyId);
-  if (!survey?.id) {
-    throw new ResourceNotFoundError("Survey", surveyId);
-  }
+export const resetSurveyAction = authenticatedActionClient.inputSchema(ZResetSurveyAction).action(
+  withAuditLogging("updated", "survey", async ({ ctx, parsedInput }) => {
+    const organizationId = await getOrganizationIdFromSurveyId(parsedInput.surveyId);
+    const projectId = await getProjectIdFromSurveyId(parsedInput.surveyId);
 
-  const resultShareKey = customAlphabet(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-    20
-  )();
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId,
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "readWrite",
+          projectId,
+        },
+      ],
+    });
 
-  await updateSurvey({ ...survey, resultShareKey });
+    ctx.auditLoggingCtx.organizationId = organizationId;
+    ctx.auditLoggingCtx.surveyId = parsedInput.surveyId;
+    ctx.auditLoggingCtx.oldObject = null;
 
-  return resultShareKey;
-};
+    const { deletedResponsesCount, deletedDisplaysCount } = await deleteResponsesAndDisplaysForSurvey(
+      parsedInput.surveyId
+    );
 
-export const getResultShareUrlAction = async (surveyId: string): Promise<string | null> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+    ctx.auditLoggingCtx.newObject = {
+      deletedResponsesCount: deletedResponsesCount,
+      deletedDisplaysCount: deletedDisplaysCount,
+    };
 
-  const hasUserSurveyAccess = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!hasUserSurveyAccess) throw new AuthorizationError("Not authorized");
+    return {
+      success: true,
+      deletedResponsesCount: deletedResponsesCount,
+      deletedDisplaysCount: deletedDisplaysCount,
+    };
+  })
+);
 
-  const survey = await getSurvey(surveyId);
-  if (!survey?.id) {
-    throw new ResourceNotFoundError("Survey", surveyId);
-  }
+const ZGetEmailHtmlAction = z.object({
+  surveyId: ZId,
+});
 
-  return survey.resultShareKey;
-};
+export const getEmailHtmlAction = authenticatedActionClient
+  .inputSchema(ZGetEmailHtmlAction)
+  .action(async ({ ctx, parsedInput }) => {
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: await getOrganizationIdFromSurveyId(parsedInput.surveyId),
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          minPermission: "readWrite",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+        },
+      ],
+    });
 
-export const deleteResultShareUrlAction = async (surveyId: string): Promise<void> => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+    return await getEmailTemplateHtml(parsedInput.surveyId, ctx.user.locale);
+  });
 
-  const hasUserSurveyAccess = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!hasUserSurveyAccess) throw new AuthorizationError("Not authorized");
+const ZGeneratePersonalLinksAction = z.object({
+  surveyId: ZId,
+  segmentId: ZId,
+  environmentId: ZId,
+  expirationDays: z.number().optional(),
+});
 
-  const survey = await getSurvey(surveyId);
-  if (!survey?.id) {
-    throw new ResourceNotFoundError("Survey", surveyId);
-  }
+export const generatePersonalLinksAction = authenticatedActionClient
+  .inputSchema(ZGeneratePersonalLinksAction)
+  .action(async ({ ctx, parsedInput }) => {
+    const organizationId = await getOrganizationIdFromSurveyId(parsedInput.surveyId);
+    const isContactsEnabled = await getIsContactsEnabled(organizationId);
+    if (!isContactsEnabled) {
+      throw new OperationNotAllowedError("Contacts are not enabled for this environment");
+    }
 
-  await updateSurvey({ ...survey, resultShareKey: null });
-};
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: await getOrganizationIdFromSurveyId(parsedInput.surveyId),
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+          minPermission: "readWrite",
+        },
+      ],
+    });
 
-export const getEmailHtmlAction = async (surveyId: string) => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+    // Get contacts and generate personal links
+    const contactsResult = await generatePersonalLinks(
+      parsedInput.surveyId,
+      parsedInput.segmentId,
+      parsedInput.expirationDays
+    );
 
-  const hasUserSurveyAccess = await canUserAccessSurvey(session.user.id, surveyId);
-  if (!hasUserSurveyAccess) throw new AuthorizationError("Not authorized");
+    if (!contactsResult || contactsResult.length === 0) {
+      throw new UnknownError("No contacts found for the selected segment");
+    }
 
-  return await getEmailTemplateHtml(surveyId);
-};
+    // Prepare CSV data with the specified headers and order
+    const csvHeaders = [
+      "Formbricks Contact ID",
+      "User ID",
+      "First Name",
+      "Last Name",
+      "Email",
+      "Personal Link",
+    ];
+
+    const csvData = contactsResult
+      .map((contact) => {
+        if (!contact) {
+          return null;
+        }
+        const attributes = contact.attributes ?? {};
+        return {
+          "Formbricks Contact ID": contact.contactId,
+          "User ID": attributes.userId ?? "",
+          "First Name": attributes.firstName ?? "",
+          "Last Name": attributes.lastName ?? "",
+          Email: attributes.email ?? "",
+          "Personal Link": contact.surveyUrl,
+        };
+      })
+      .filter((contact) => contact !== null);
+
+    // Convert to CSV using the file conversion utility
+    const csvContent = await convertToCsv(csvHeaders, csvData);
+    const fileName = `personal-links-${parsedInput.surveyId}-${Date.now()}.csv`;
+
+    return {
+      fileName,
+      csvContent,
+    };
+  });
+
+const ZUpdateSingleUseLinksAction = z.object({
+  surveyId: ZId,
+  environmentId: ZId,
+  isSingleUse: z.boolean(),
+  isSingleUseEncryption: z.boolean(),
+});
+
+export const updateSingleUseLinksAction = authenticatedActionClient
+  .inputSchema(ZUpdateSingleUseLinksAction)
+  .action(async ({ ctx, parsedInput }) => {
+    await checkAuthorizationUpdated({
+      userId: ctx.user.id,
+      organizationId: await getOrganizationIdFromSurveyId(parsedInput.surveyId),
+      access: [
+        {
+          type: "organization",
+          roles: ["owner", "manager"],
+        },
+        {
+          type: "projectTeam",
+          projectId: await getProjectIdFromSurveyId(parsedInput.surveyId),
+          minPermission: "readWrite",
+        },
+      ],
+    });
+
+    const survey = await getSurvey(parsedInput.surveyId);
+    if (!survey) {
+      throw new ResourceNotFoundError("Survey", parsedInput.surveyId);
+    }
+
+    const updatedSurvey = await updateSurvey({
+      ...survey,
+      singleUse: { enabled: parsedInput.isSingleUse, isEncrypted: parsedInput.isSingleUseEncryption },
+    });
+
+    return updatedSurvey;
+  });

@@ -1,72 +1,109 @@
-import z from "zod";
+import { z } from "zod";
 
-const ZRole = z.enum(["project_manager", "engineer", "founder", "marketing_specialist", "other"]);
-
-export const ZUserObjective = z.enum([
-  "increase_conversion",
-  "improve_user_retention",
-  "increase_user_adoption",
-  "sharpen_marketing_messaging",
-  "support_sales",
-  "other",
+export const ZUserLocale = z.enum([
+  "de-DE",
+  "en-US",
+  "es-ES",
+  "fr-FR",
+  "hu-HU",
+  "ja-JP",
+  "nl-NL",
+  "pt-BR",
+  "pt-PT",
+  "ro-RO",
+  "ru-RU",
+  "sv-SE",
+  "zh-Hans-CN",
+  "zh-Hant-TW",
 ]);
 
-export type TUserObjective = z.infer<typeof ZUserObjective>;
+export type TUserLocale = z.infer<typeof ZUserLocale>;
 
 export const ZUserNotificationSettings = z.object({
-  alert: z.record(z.boolean()),
-  weeklySummary: z.record(z.boolean()),
+  alert: z.record(z.string(), z.boolean()),
   unsubscribedOrganizationIds: z.array(z.string()).optional(),
 });
 
+export const ZUserName = z
+  .string()
+  .trim()
+  .min(1, {
+    error: "Name should be at least 1 character long",
+  })
+  .regex(/^[\p{L}\p{M}\s'\d-]+$/u, "Invalid name format");
+
+export const ZUserEmail = z
+  .email({
+    error: "Invalid email",
+  })
+  .max(255);
+
+export type TUserEmail = z.infer<typeof ZUserEmail>;
+
+export const ZUserPassword = z
+  .string()
+  .min(8, {
+    error: "Password must be at least 8 characters long",
+  })
+  .max(128, {
+    error: "Password must be 128 characters or less",
+  })
+  .regex(/^(?=.*[A-Z])(?=.*\d).*$/);
+
+export type TUserPassword = z.infer<typeof ZUserPassword>;
+
 export type TUserNotificationSettings = z.infer<typeof ZUserNotificationSettings>;
+
+const ZUserIdentityProvider = z.enum(["email", "google", "github", "azuread", "openid", "saml"]);
 
 export const ZUser = z.object({
   id: z.string(),
-  name: z
-    .string({ message: "Name is required" })
-    .trim()
-    .min(1, { message: "Name should be at least 1 character long" }),
-  email: z.string().email(),
+  name: ZUserName,
+  email: ZUserEmail,
   emailVerified: z.date().nullable(),
-  imageUrl: z.string().url().nullable(),
   twoFactorEnabled: z.boolean(),
-  identityProvider: z.enum(["email", "google", "github", "azuread", "openid"]),
+  identityProvider: ZUserIdentityProvider,
   createdAt: z.date(),
   updatedAt: z.date(),
-  onboardingCompleted: z.boolean(),
-  role: ZRole.nullable(),
-  objective: ZUserObjective.nullable(),
   notificationSettings: ZUserNotificationSettings,
+  locale: ZUserLocale,
+  lastLoginAt: z.date().nullable(),
+  isActive: z.boolean().prefault(true),
 });
 
 export type TUser = z.infer<typeof ZUser>;
 
 export const ZUserUpdateInput = z.object({
-  name: z.string().optional(),
-  email: z.string().email().optional(),
+  name: ZUserName.optional(),
+  email: ZUserEmail.optional(),
   emailVerified: z.date().nullish(),
-  onboardingCompleted: z.boolean().optional(),
-  role: ZRole.optional(),
-  objective: ZUserObjective.nullish(),
-  imageUrl: z.string().nullish(),
+  password: ZUserPassword.optional(),
   notificationSettings: ZUserNotificationSettings.optional(),
+  locale: ZUserLocale.optional(),
+  lastLoginAt: z.date().nullish(),
+  isActive: z.boolean().optional(),
 });
 
 export type TUserUpdateInput = z.infer<typeof ZUserUpdateInput>;
 
 export const ZUserCreateInput = z.object({
-  name: z
-    .string({ message: "Name is required" })
-    .trim()
-    .min(1, { message: "Name should be at least 1 character long" }),
-  email: z.string().email(),
+  name: ZUserName,
+  email: ZUserEmail,
+  password: ZUserPassword.optional(),
   emailVerified: z.date().optional(),
-  onboardingCompleted: z.boolean().optional(),
-  role: ZRole.optional(),
-  objective: ZUserObjective.nullish(),
-  identityProvider: z.enum(["email", "google", "github", "azuread", "openid"]).optional(),
+  identityProvider: ZUserIdentityProvider.optional(),
   identityProviderAccountId: z.string().optional(),
+  locale: ZUserLocale.optional(),
 });
 
 export type TUserCreateInput = z.infer<typeof ZUserCreateInput>;
+
+export const ZUserPersonalInfoUpdateInput = ZUserUpdateInput.pick({
+  name: true,
+  email: true,
+  locale: true,
+}).extend({
+  password: ZUserPassword.optional(),
+});
+
+export type TUserPersonalInfoUpdateInput = z.infer<typeof ZUserPersonalInfoUpdateInput>;

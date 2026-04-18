@@ -1,11 +1,8 @@
 import { z } from "zod";
-
 import { ZIntegrationAirtableConfig, ZIntegrationAirtableInput } from "./airtable";
-import { ZIntegrationGoogleSheetsConfig, ZIntegrationGoogleSheetsInput } from "./googleSheet";
+import { ZIntegrationGoogleSheetsConfig, ZIntegrationGoogleSheetsInput } from "./google-sheet";
 import { ZIntegrationNotionConfig, ZIntegrationNotionInput } from "./notion";
 import { ZIntegrationSlackConfig, ZIntegrationSlackInput } from "./slack";
-
-export * from "./sharedTypes";
 
 export const ZIntegrationType = z.enum(["googleSheets", "n8n", "airtable", "notion", "slack"]);
 export type TIntegrationType = z.infer<typeof ZIntegrationType>;
@@ -33,13 +30,13 @@ export type TIntegration = z.infer<typeof ZIntegration>;
 
 export const ZIntegrationBaseSurveyData = z.object({
   createdAt: z.date(),
-  questionIds: z.array(z.string()),
-  questions: z.string(),
+  elementIds: z.array(z.string()),
+  elements: z.string(),
   surveyId: z.string(),
   surveyName: z.string(),
 });
 
-export const ZIntegrationInput = z.union([
+export const ZIntegrationInput = z.discriminatedUnion("type", [
   ZIntegrationGoogleSheetsInput,
   ZIntegrationAirtableInput,
   ZIntegrationNotionInput,

@@ -1,115 +1,125 @@
-import { finishOnboarding, signUpAndLogin } from "@/playwright/utils/helper";
-import { users } from "@/playwright/utils/mock";
-import { expect, test } from "@playwright/test";
-
-const { name, email, password } = users.survey[2];
+import { expect } from "@playwright/test";
+import { logger } from "@formbricks/logger";
+import { test } from "../../lib/fixtures";
+import { loginAndGetApiKey } from "../../lib/utils";
+import { SURVEYS_API_URL } from "../constants";
 
 test.describe("API Tests", () => {
   let surveyId: string;
   let environmentId: string;
   let apiKey: string;
-  test("Copy API Key for API Calls", async ({ page }) => {
-    await signUpAndLogin(page, name, email, password);
-    await finishOnboarding(page);
 
-    await page.waitForURL(/\/environments\/[^/]+\/surveys/);
-    environmentId =
-      /\/environments\/([^/]+)\/surveys/.exec(page.url())?.[1] ??
-      (() => {
-        throw new Error("Unable to parse environmentId from URL");
-      })();
+  test("API Tests", async ({ page, users, request }) => {
+    try {
+      ({ environmentId, apiKey } = await loginAndGetApiKey(page, users));
+    } catch (error) {
+      logger.error(error, "Error during login and getting API key");
+      throw error;
+    }
 
-    await page.goto(`/environments/${environmentId}/product/api-keys`);
+    await test.step("Create Survey from API", async () => {
+      const response = await request.post(SURVEYS_API_URL, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+        },
+        data: {
+          environmentId: environmentId,
+          type: "link",
+          name: "My new Survey from API",
+          questions: [
+            {
+              id: "jpvm9b73u06xdrhzi11k2h76",
+              type: "openText",
+              headline: {
+                default: "What would you like to know?",
+              },
+              required: true,
+              inputType: "text",
+              subheader: {
+                default: "This is an example survey.",
+              },
+              placeholder: {
+                default: "Type your answer here...",
+              },
+              charLimit: {
+                enabled: false,
+              },
+            },
+          ],
+        },
+      });
 
-    await page.getByRole("button", { name: "Add Production API Key" }).isVisible();
-    await page.getByRole("button", { name: "Add Production API Key" }).click();
-    await page.getByPlaceholder("e.g. GitHub, PostHog, Slack").fill("E2E Test API Key");
-    await page.getByRole("button", { name: "Add API Key" }).click();
-    await page.locator(".copyApiKeyIcon").click();
+      expect(response.ok()).toBeTruthy();
+      const responseBody = await response.json();
+      expect(responseBody.data.name).toEqual("My new Survey from API");
+      expect(responseBody.data.environmentId).toEqual(environmentId);
 
-    apiKey = await page.evaluate("navigator.clipboard.readText()");
-  });
-
-  test("Create Survey from API", async ({ request }) => {
-    const response = await request.post(`/api/v1/management/surveys`, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-      },
-      data: {
-        environmentId: environmentId,
-        type: "link",
-        name: "My new Survey from API",
-      },
+      surveyId = responseBody.data.id;
     });
 
-    expect(response.ok()).toBeTruthy();
-    const responseBody = await response.json();
-    expect(responseBody.data.name).toEqual("My new Survey from API");
-    expect(responseBody.data.environmentId).toEqual(environmentId);
-  });
+    await test.step("List Surveys from API", async () => {
+      const response = await request.get(SURVEYS_API_URL, {
+        headers: {
+          "x-api-key": apiKey,
+        },
+      });
+      expect(response.ok()).toBeTruthy();
+      const responseBody = await response.json();
 
-  test("List Surveys from API", async ({ request }) => {
-    const response = await request.get(`/api/v1/management/surveys`, {
-      headers: {
-        "x-api-key": apiKey,
-      },
-    });
-    expect(response.ok()).toBeTruthy();
-    const responseBody = await response.json();
+      const surveyCount = responseBody.data.length;
+      expect(surveyCount).toEqual(1);
 
-    const surveyCount = responseBody.data.length;
-    expect(surveyCount).toEqual(1);
-
-    surveyId = responseBody.data[0].id;
-  });
-
-  test("Get Survey by ID from API", async ({ request }) => {
-    const responseSurvey = await request.get(`/api/v1/management/surveys/${surveyId}`, {
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-      },
-    });
-    expect(responseSurvey.ok()).toBeTruthy();
-    const responseBodySurvey = await responseSurvey.json();
-
-    expect(responseBodySurvey.data.id).toEqual(surveyId);
-  });
-
-  test("Updated Survey by ID from API", async ({ request }) => {
-    const response = await request.put(`/api/v1/management/surveys/${surveyId}`, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-      },
-      data: {
-        name: "My updated Survey from API",
-      },
+      surveyId = responseBody.data[0].id;
     });
 
-    expect(response.ok()).toBeTruthy();
-    const responseBody = await response.json();
-    expect(responseBody.data.name).toEqual("My updated Survey from API");
-  });
+    await test.step("Get Survey by ID from API", async () => {
+      const responseSurvey = await request.get(`${SURVEYS_API_URL}/${surveyId}`, {
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+        },
+      });
+      expect(responseSurvey.ok()).toBeTruthy();
+      const responseBodySurvey = await responseSurvey.json();
 
-  test("Delete Survey by ID from API", async ({ request }) => {
-    const response = await request.delete(`/api/v1/management/surveys/${surveyId}`, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-      },
+      expect(responseBodySurvey.data.id).toEqual(surveyId);
     });
-    expect(response.ok()).toBeTruthy();
-    const responseBody = await response.json();
-    expect(responseBody.data.name).toEqual("My updated Survey from API");
 
-    const responseSurvey = await request.get(`/api/v1/management/surveys/${surveyId}`, {
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-      },
+    await test.step("Updated Survey by ID from API", async () => {
+      const response = await request.put(`${SURVEYS_API_URL}/${surveyId}`, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+        },
+        data: {
+          name: "My updated Survey from API",
+        },
+      });
+
+      expect(response.ok()).toBeTruthy();
+      const responseBody = await response.json();
+      expect(responseBody.data.name).toEqual("My updated Survey from API");
     });
-    expect(responseSurvey.ok()).toBeFalsy();
+
+    await test.step("Delete Survey by ID from API", async () => {
+      const response = await request.delete(`${SURVEYS_API_URL}/${surveyId}`, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+        },
+      });
+      expect(response.ok()).toBeTruthy();
+      const responseBody = await response.json();
+      expect(responseBody.data.name).toEqual("My updated Survey from API");
+
+      const responseSurvey = await request.get(`${SURVEYS_API_URL}/${surveyId}`, {
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+        },
+      });
+      expect(responseSurvey.ok()).toBeFalsy();
+    });
   });
 });

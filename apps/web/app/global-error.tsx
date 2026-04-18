@@ -1,35 +1,22 @@
 "use client";
 
 import * as Sentry from "@sentry/nextjs";
-import Error from "next/error";
+import NextError from "next/error";
 import { useEffect } from "react";
 
-import { Button } from "@formbricks/ui/Button";
-import { ErrorComponent } from "@formbricks/ui/ErrorComponent";
-
-const GlobalError = ({ error, reset }: { error: Error; reset: () => void }) => {
+export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    if (process.env.NODE_ENV === "development") {
+      console.error(error.message);
+    } else {
+      Sentry.captureException(error);
+    }
   }, [error]);
-
   return (
-    <html>
+    <html lang="en-US">
       <body>
-        <div className="flex h-full w-full flex-col items-center justify-center">
-          <ErrorComponent />
-          <Button
-            variant="secondary"
-            onClick={
-              // Attempt to recover by trying to re-render the segment
-              () => reset()
-            }
-            className="mt-2">
-            Try again
-          </Button>
-        </div>
+        <NextError statusCode={0} />
       </body>
     </html>
   );
-};
-
-export default GlobalError;
+}

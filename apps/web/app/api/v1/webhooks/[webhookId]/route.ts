@@ -1,55 +1,83 @@
+import { logger } from "@formbricks/logger";
+import { deleteWebhook, getWebhook } from "@/app/api/v1/webhooks/[webhookId]/lib/webhook";
 import { responses } from "@/app/lib/api/response";
-import { headers } from "next/headers";
+import { THandlerParams, withV1ApiWrapper } from "@/app/lib/api/with-api-logging";
+import { hasPermission } from "@/modules/organization/settings/api-keys/lib/utils";
 
-import { getApiKeyFromKey } from "@formbricks/lib/apiKey/service";
-import { deleteWebhook, getWebhook } from "@formbricks/lib/webhook/service";
+export const GET = withV1ApiWrapper({
+  handler: async ({ props, authentication }: THandlerParams<{ params: Promise<{ webhookId: string }> }>) => {
+    if (!authentication || !("apiKeyId" in authentication)) {
+      return { response: responses.notAuthenticatedResponse() };
+    }
 
-export const GET = async (_: Request, { params }: { params: { webhookId: string } }) => {
-  const apiKey = headers().get("x-api-key");
-  if (!apiKey) {
-    return responses.notAuthenticatedResponse();
-  }
-  const apiKeyData = await getApiKeyFromKey(apiKey);
-  if (!apiKeyData) {
-    return responses.notAuthenticatedResponse();
-  }
+    const params = await props.params;
 
-  // add webhook to database
-  const webhook = await getWebhook(params.webhookId);
-  if (!webhook) {
-    return responses.notFoundResponse("Webhook", params.webhookId);
-  }
-  if (webhook.environmentId !== apiKeyData.environmentId) {
-    return responses.unauthorizedResponse();
-  }
-  return responses.successResponse(webhook);
-};
+    const webhook = await getWebhook(params.webhookId);
+    if (!webhook) {
+      return {
+        response: responses.notFoundResponse("Webhook", params.webhookId),
+      };
+    }
+    if (!hasPermission(authentication.environmentPermissions, webhook.environmentId, "GET")) {
+      return {
+        response: responses.unauthorizedResponse(),
+      };
+    }
+    return {
+      response: responses.successResponse(webhook),
+    };
+  },
+});
 
-export const DELETE = async (_: Request, { params }: { params: { webhookId: string } }) => {
-  const apiKey = headers().get("x-api-key");
-  if (!apiKey) {
-    return responses.notAuthenticatedResponse();
-  }
-  const apiKeyData = await getApiKeyFromKey(apiKey);
-  if (!apiKeyData) {
-    return responses.notAuthenticatedResponse();
-  }
+export const DELETE = withV1ApiWrapper({
+  handler: async ({
+    req,
+    props,
+    auditLog,
+    authentication,
+  }: THandlerParams<{ params: Promise<{ webhookId: string }> }>) => {
+    if (!authentication || !("apiKeyId" in authentication)) {
+      return { response: responses.notAuthenticatedResponse() };
+    }
 
-  // check if webhook exists
-  const webhook = await getWebhook(params.webhookId);
-  if (!webhook) {
-    return responses.notFoundResponse("Webhook", params.webhookId);
-  }
-  if (webhook.environmentId !== apiKeyData.environmentId) {
-    return responses.unauthorizedResponse();
-  }
+    const params = await props.params;
+    if (auditLog) {
+      auditLog.targetId = params.webhookId;
+    }
 
-  // delete webhook from database
-  try {
-    const webhook = await deleteWebhook(params.webhookId);
-    return responses.successResponse(webhook);
-  } catch (e) {
-    console.error(e.message);
-    return responses.notFoundResponse("Webhook", params.webhookId);
-  }
-};
+    // check if webhook exists
+    const webhook = await getWebhook(params.webhookId);
+    if (!webhook) {
+      return {
+        response: responses.notFoundResponse("Webhook", params.webhookId),
+      };
+    }
+    if (!hasPermission(authentication.environmentPermissions, webhook.environmentId, "DELETE")) {
+      return {
+        response: responses.unauthorizedResponse(),
+      };
+    }
+
+    if (auditLog) {
+      auditLog.oldObject = webhook;
+    }
+
+    // delete webhook from database
+    try {
+      const deletedWebhook = await deleteWebhook(params.webhookId);
+      return {
+        response: responses.successResponse(deletedWebhook),
+      };
+    } catch (e) {
+      if (auditLog) {
+        auditLog.status = "failure";
+      }
+      logger.error({ error: e, url: req.url }, "Error deleting webhook");
+      return {
+        response: responses.notFoundResponse("Webhook", params.webhookId),
+      };
+    }
+  },
+  action: "deleted",
+  targetType: "webhook",
+});

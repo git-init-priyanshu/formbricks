@@ -2,27 +2,44 @@
 // The config you add here will be used whenever the server handles a request.
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 import * as Sentry from "@sentry/nextjs";
+import { logger } from "@formbricks/logger";
+import { SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_RELEASE } from "@/lib/constants";
 
-Sentry.init({
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+if (SENTRY_DSN) {
+  logger.info("Sentry DSN found, enabling Sentry on the server");
 
-  // Adjust this value in production, or use tracesSampler for greater control
-  tracesSampleRate: 1,
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    release: SENTRY_RELEASE,
+    environment: SENTRY_ENVIRONMENT,
 
-  // Setting this option to true will print useful information to the console while you're setting up Sentry.
-  debug: false,
+    // No tracing while Sentry doesn't update to telemetry 2.0.0 - https://github.com/getsentry/sentry-javascript/issues/15737
+    tracesSampleRate: 0,
 
-  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
-  // spotlight: process.env.NODE_ENV === 'development',
+    // Keep Sentry from registering its own TracerProvider; app telemetry is handled by instrumentation-node.ts
+    skipOpenTelemetrySetup: true,
 
-  beforeSend(event, hint) {
-    const error = hint.originalException as Error;
+    // Setting this option to true will print useful information to the console while you're setting up Sentry.
+    debug: false,
 
-    // @ts-expect-error
-    if (error && error.digest === "NEXT_NOT_FOUND") {
-      return null;
-    }
+    // Disable telemetry and additional data collection
+    sendDefaultPii: false,
+    sendClientReports: false,
 
-    return event;
-  },
-});
+    // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+    // spotlight: process.env.NODE_ENV === 'development',
+
+    beforeSend(event, hint) {
+      const error = hint.originalException as Error;
+
+      // @ts-expect-error
+      if (error?.digest === "NEXT_NOT_FOUND") {
+        return null;
+      }
+
+      return event;
+    },
+  });
+} else {
+  logger.warn("Sentry DSN not found, Sentry will be disabled on the server");
+}

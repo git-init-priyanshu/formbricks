@@ -1,22 +1,25 @@
 import { Metadata } from "next";
 import { getServerSession } from "next-auth";
-
-import { authOptions } from "@formbricks/lib/authOptions";
-import { getResponseCountBySurveyId } from "@formbricks/lib/response/service";
-import { getSurvey } from "@formbricks/lib/survey/service";
+import { ResponseFilterProvider } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/components/response-filter-context";
+import { getResponseCountBySurveyId } from "@/lib/response/service";
+import { getSurvey } from "@/lib/survey/service";
+import { getTranslate } from "@/lingodotdev/server";
+import { authOptions } from "@/modules/auth/lib/authOptions";
 
 type Props = {
-  params: { surveyId: string; environmentId: string };
+  params: Promise<{ surveyId: string; environmentId: string }>;
 };
 
-export const generateMetadata = async ({ params }: Props): Promise<Metadata> => {
+export const generateMetadata = async (props: Props): Promise<Metadata> => {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   const survey = await getSurvey(params.surveyId);
   const responseCount = await getResponseCountBySurveyId(params.surveyId);
+  const t = await getTranslate();
 
   if (session) {
     return {
-      title: `${responseCount} Responses | ${survey?.name} Results`,
+      title: `${t("common.count_responses", { count: responseCount })} | ${t("environments.surveys.summary.survey_results", { surveyName: survey?.name })}`,
     };
   }
   return {
@@ -24,8 +27,8 @@ export const generateMetadata = async ({ params }: Props): Promise<Metadata> => 
   };
 };
 
-const SurveyLayout = async ({ children }) => {
-  return <>{children}</>;
+const SurveyLayout = async ({ children }: { children: React.ReactNode }) => {
+  return <ResponseFilterProvider>{children}</ResponseFilterProvider>;
 };
 
 export default SurveyLayout;

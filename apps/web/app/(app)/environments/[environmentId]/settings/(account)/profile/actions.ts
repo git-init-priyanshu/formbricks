@@ -1,125 +1,103 @@
 "use server";
 
-import { getServerSession } from "next-auth";
+import { AuthenticationError, AuthorizationError, OperationNotAllowedError } from "@formbricks/types/errors";
+import {
+  TUserPersonalInfoUpdateInput,
+  TUserUpdateInput,
+  ZUserPersonalInfoUpdateInput,
+} from "@formbricks/types/user";
+import {
+  getIsEmailUnique,
+  verifyUserPassword,
+} from "@/app/(app)/environments/[environmentId]/settings/(account)/profile/lib/user";
+import { EMAIL_VERIFICATION_DISABLED, PASSWORD_RESET_DISABLED } from "@/lib/constants";
+import { getUser, updateUser } from "@/lib/user/service";
+import { authenticatedActionClient } from "@/lib/utils/action-client";
+import { AuthenticatedActionClientCtx } from "@/lib/utils/action-client/types/context";
+import { requestPasswordReset } from "@/modules/auth/forgot-password/lib/password-reset-service";
+import { updateBrevoCustomer } from "@/modules/auth/lib/brevo";
+import { applyRateLimit } from "@/modules/core/rate-limit/helpers";
+import { rateLimitConfigs } from "@/modules/core/rate-limit/rate-limit-configs";
+import { withAuditLogging } from "@/modules/ee/audit-logs/lib/handler";
+import { sendVerificationNewEmail } from "@/modules/email";
 
-import { disableTwoFactorAuth, enableTwoFactorAuth, setupTwoFactorAuth } from "@formbricks/lib/auth/service";
-import { authOptions } from "@formbricks/lib/authOptions";
-import { hasUserEnvironmentAccess } from "@formbricks/lib/environment/auth";
-import { deleteFile } from "@formbricks/lib/storage/service";
-import { getFileNameWithIdFromUrl } from "@formbricks/lib/storage/utils";
-import { deleteUser, updateUser } from "@formbricks/lib/user/service";
-import { AuthorizationError } from "@formbricks/types/errors";
-import { TUserUpdateInput } from "@formbricks/types/user";
+function buildUserUpdatePayload(parsedInput: TUserPersonalInfoUpdateInput): TUserUpdateInput {
+  return {
+    ...(parsedInput.name && { name: parsedInput.name }),
+    ...(parsedInput.locale && { locale: parsedInput.locale }),
+  };
+}
 
-export const updateUserAction = async (data: Partial<TUserUpdateInput>) => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
+async function handleEmailUpdate({
+  ctx,
+  parsedInput,
+  payload,
+}: {
+  ctx: AuthenticatedActionClientCtx;
+  parsedInput: TUserPersonalInfoUpdateInput;
+  payload: TUserUpdateInput;
+}) {
+  const inputEmail = parsedInput.email?.trim().toLowerCase();
+  if (!inputEmail || ctx.user.email === inputEmail) return payload;
 
-  return await updateUser(session.user.id, data);
-};
+  await applyRateLimit(rateLimitConfigs.actions.emailUpdate, ctx.user.id);
 
-export const deleteUserAction = async () => {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new AuthorizationError("Not authorized");
-
-  return await deleteUser(session.user.id);
-};
-
-export const setupTwoFactorAuthAction = async (password: string) => {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    throw new Error("Not authenticated");
+  if (ctx.user.identityProvider !== "email") {
+    throw new OperationNotAllowedError("Email update is not allowed for non-credential users.");
   }
-
-  if (!session.user.id) {
-    throw new Error("User not found");
+  if (!parsedInput.password) {
+    throw new AuthenticationError("Password is required to update email.");
   }
-
-  return await setupTwoFactorAuth(session.user.id, password);
-};
-
-export const enableTwoFactorAuthAction = async (code: string) => {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    throw new Error("Not authenticated");
+  const isCorrectPassword = await verifyUserPassword(ctx.user.id, parsedInput.password);
+  if (!isCorrectPassword) {
+    throw new AuthorizationError("Incorrect credentials");
   }
+  const isEmailUnique = await getIsEmailUnique(inputEmail);
+  if (!isEmailUnique) return payload;
 
-  if (!session.user.id) {
-    throw new Error("User not found");
+  if (EMAIL_VERIFICATION_DISABLED) {
+    payload.email = inputEmail;
+    await updateBrevoCustomer({ id: ctx.user.id, email: inputEmail });
+  } else {
+    await sendVerificationNewEmail(ctx.user.id, inputEmail, ctx.user.locale);
   }
+  return payload;
+}
 
-  return await enableTwoFactorAuth(session.user.id, code);
-};
+export const updateUserAction = authenticatedActionClient.inputSchema(ZUserPersonalInfoUpdateInput).action(
+  withAuditLogging("updated", "user", async ({ ctx, parsedInput }) => {
+    const oldObject = await getUser(ctx.user.id);
+    let payload = buildUserUpdatePayload(parsedInput);
+    payload = await handleEmailUpdate({ ctx, parsedInput, payload });
 
-type TDisableTwoFactorAuthParams = {
-  code: string;
-  password: string;
-  backupCode?: string;
-};
-
-export const disableTwoFactorAuthAction = async (params: TDisableTwoFactorAuthParams) => {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    throw new Error("Not authenticated");
-  }
-
-  if (!session.user.id) {
-    throw new Error("User not found");
-  }
-
-  return await disableTwoFactorAuth(session.user.id, params);
-};
-
-export const updateAvatarAction = async (avatarUrl: string) => {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    throw new Error("Not authenticated");
-  }
-
-  if (!session.user.id) {
-    throw new Error("User not found");
-  }
-
-  return await updateUser(session.user.id, { imageUrl: avatarUrl });
-};
-
-export const removeAvatarAction = async (environmentId: string) => {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    throw new Error("Not authenticated");
-  }
-
-  if (!session.user.id) {
-    throw new Error("User not found");
-  }
-
-  const isUserAuthorized = await hasUserEnvironmentAccess(session.user.id, environmentId);
-  if (!isUserAuthorized) {
-    throw new Error("Not Authorized");
-  }
-
-  try {
-    const imageUrl = session.user.imageUrl;
-    if (!imageUrl) {
-      throw new Error("Image not found");
+    // Only proceed with updateUser if we have actual changes to make
+    let newObject = oldObject;
+    if (Object.keys(payload).length > 0) {
+      newObject = await updateUser(ctx.user.id, payload);
     }
 
-    const fileName = getFileNameWithIdFromUrl(imageUrl);
-    if (!fileName) {
-      throw new Error("Invalid filename");
+    ctx.auditLoggingCtx.userId = ctx.user.id;
+    ctx.auditLoggingCtx.oldObject = oldObject;
+    ctx.auditLoggingCtx.newObject = newObject;
+
+    return true;
+  })
+);
+
+export const resetPasswordAction = authenticatedActionClient.action(
+  withAuditLogging("passwordReset", "user", async ({ ctx }) => {
+    if (PASSWORD_RESET_DISABLED) {
+      throw new OperationNotAllowedError("Password reset is disabled");
     }
 
-    const deletionResult = await deleteFile(environmentId, "public", fileName);
-    if (!deletionResult.success) {
-      throw new Error("Deletion failed");
+    if (ctx.user.identityProvider !== "email") {
+      throw new OperationNotAllowedError("Password reset is not allowed for this user.");
     }
-    return await updateUser(session.user.id, { imageUrl: null });
-  } catch (error) {
-    throw new Error(`${"Deletion failed"}: ${error.message}`);
-  }
-};
+
+    await requestPasswordReset(ctx.user, "profile");
+
+    ctx.auditLoggingCtx.userId = ctx.user.id;
+
+    return { success: true };
+  })
+);

@@ -1,83 +1,83 @@
-import { OrganizationSettingsNavbar } from "@/app/(app)/environments/[environmentId]/settings/(organization)/components/OrganizationSettingsNavbar";
 import { CheckIcon } from "lucide-react";
-import { getServerSession } from "next-auth";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { OrganizationSettingsNavbar } from "@/app/(app)/environments/[environmentId]/settings/(organization)/components/OrganizationSettingsNavbar";
+import { EnterpriseLicenseStatus } from "@/app/(app)/environments/[environmentId]/settings/(organization)/enterprise/components/EnterpriseLicenseStatus";
+import { IS_FORMBRICKS_CLOUD } from "@/lib/constants";
+import { getTranslate } from "@/lingodotdev/server";
+import { GRACE_PERIOD_MS, getEnterpriseLicense } from "@/modules/ee/license-check/lib/license";
+import { getEnvironmentAuth } from "@/modules/environments/lib/utils";
+import { Button } from "@/modules/ui/components/button";
+import { PageContentWrapper } from "@/modules/ui/components/page-content-wrapper";
+import { PageHeader } from "@/modules/ui/components/page-header";
+import { EnterpriseLicenseFeaturesTable } from "./components/EnterpriseLicenseFeaturesTable";
 
-import { getIsEnterpriseEdition } from "@formbricks/ee/lib/service";
-import { authOptions } from "@formbricks/lib/authOptions";
-import { IS_FORMBRICKS_CLOUD } from "@formbricks/lib/constants";
-import { getMembershipByUserIdOrganizationId } from "@formbricks/lib/membership/service";
-import { getAccessFlags } from "@formbricks/lib/membership/utils";
-import { getOrganizationByEnvironmentId } from "@formbricks/lib/organization/service";
-import { Button } from "@formbricks/ui/Button";
-import { PageContentWrapper } from "@formbricks/ui/PageContentWrapper";
-import { PageHeader } from "@formbricks/ui/PageHeader";
-
-const Page = async ({ params }) => {
+const Page = async (props: { params: Promise<{ environmentId: string }> }) => {
+  const params = await props.params;
+  const t = await getTranslate();
   if (IS_FORMBRICKS_CLOUD) {
-    notFound();
+    return notFound();
   }
 
-  const session = await getServerSession(authOptions);
+  const { isMember, currentUserMembership } = await getEnvironmentAuth(params.environmentId);
 
-  const organization = await getOrganizationByEnvironmentId(params.environmentId);
-
-  if (!session) {
-    throw new Error("Unauthorized");
-  }
-
-  if (!organization) {
-    throw new Error("Organization not found");
-  }
-
-  const currentUserMembership = await getMembershipByUserIdOrganizationId(session?.user.id, organization.id);
-  const { isAdmin, isOwner } = getAccessFlags(currentUserMembership?.role);
-  const isPricingDisabled = !isOwner && !isAdmin;
+  const isPricingDisabled = isMember;
 
   if (isPricingDisabled) {
-    notFound();
+    return notFound();
   }
 
-  const isEnterpriseEdition = await getIsEnterpriseEdition();
+  const licenseState = await getEnterpriseLicense();
+  const hasLicense = licenseState.status !== "no-license";
 
   const paidFeatures = [
     {
-      title: "Multi-Language Surveys",
+      title: t("environments.settings.billing.remove_branding"),
       comingSoon: false,
       onRequest: false,
     },
     {
-      title: "Organization Roles (Admin, Editor, Developer, etc.)",
+      title: t("environments.settings.enterprise.sso"),
       comingSoon: false,
       onRequest: false,
     },
     {
-      title: "Advanced Targeting and Segmentation (In-app Surveys)",
+      title: t("environments.workspace.languages.multi_language_surveys"),
       comingSoon: false,
       onRequest: false,
     },
     {
-      title: "Audit Logs",
+      title: t("environments.settings.enterprise.organization_roles"),
+      comingSoon: false,
+      onRequest: false,
+    },
+    {
+      title: t("environments.settings.enterprise.teams"),
+      comingSoon: false,
+      onRequest: false,
+    },
+    {
+      title: t("environments.settings.enterprise.contacts_and_segments"),
+      comingSoon: false,
+      onRequest: false,
+    },
+    {
+      title: t("environments.settings.enterprise.audit_logs"),
       comingSoon: false,
       onRequest: true,
     },
     {
-      title: "SAML SSO",
+      title: t("environments.settings.enterprise.saml_sso"),
       comingSoon: false,
       onRequest: true,
     },
     {
-      title: "Service Level Agreement",
+      title: t("environments.settings.enterprise.service_level_agreement"),
       comingSoon: false,
       onRequest: true,
     },
     {
-      title: "SOC2, HIPAA, ISO 27001 Compliance check",
-      comingSoon: false,
-      onRequest: true,
-    },
-    {
-      title: "Custom Feature Development",
+      title: t("environments.settings.enterprise.soc2_hipaa_iso_27001_compliance_check"),
       comingSoon: false,
       onRequest: true,
     },
@@ -85,7 +85,7 @@ const Page = async ({ params }) => {
 
   return (
     <PageContentWrapper>
-      <PageHeader pageTitle="Organization Settings">
+      <PageHeader pageTitle={t("environments.settings.general.organization_settings")}>
         <OrganizationSettingsNavbar
           environmentId={params.environmentId}
           isFormbricksCloud={IS_FORMBRICKS_CLOUD}
@@ -93,25 +93,20 @@ const Page = async ({ params }) => {
           activeId="enterprise"
         />
       </PageHeader>
-      {isEnterpriseEdition ? (
-        <div>
-          <div className="mt-8 max-w-4xl rounded-lg border border-slate-300 bg-slate-100 shadow-sm">
-            <div className="space-y-4 p-8">
-              <div className="flex items-center gap-x-2">
-                <div className="rounded-full border border-green-300 bg-green-100 p-0.5 dark:bg-green-800">
-                  <CheckIcon className="h-5 w-5 p-0.5 text-green-500 dark:text-green-400" />
-                </div>
-                <p className="text-slate-800">Your Enterprise License is active. All features unlocked 🚀</p>
-              </div>
-              <p className="text-sm text-slate-500">
-                Questions? Please reach out to{" "}
-                <a className="font-semibold underline" href="mailto:hola@formbricks.com">
-                  hola@formbricks.com
-                </a>
-              </p>
-            </div>
-          </div>
-        </div>
+      {hasLicense ? (
+        <>
+          <EnterpriseLicenseStatus
+            status={licenseState.status}
+            lastChecked={licenseState.lastChecked}
+            gracePeriodEnd={
+              licenseState.status === "unreachable"
+                ? new Date(licenseState.lastChecked.getTime() + GRACE_PERIOD_MS)
+                : undefined
+            }
+            environmentId={params.environmentId}
+          />
+          {licenseState.features && <EnterpriseLicenseFeaturesTable features={licenseState.features} />}
+        </>
       ) : (
         <div>
           <div className="relative isolate mt-8 overflow-hidden rounded-lg bg-slate-900 px-3 pt-8 shadow-2xl sm:px-8 md:pt-12 lg:flex lg:gap-x-10 lg:px-12 lg:pt-0">
@@ -135,49 +130,59 @@ const Page = async ({ params }) => {
             </svg>
             <div className="mx-auto text-center lg:mx-0 lg:flex-auto lg:py-16 lg:text-left">
               <h2 className="text-2xl font-bold text-white sm:text-3xl">
-                Unlock the full power of Formbricks. Free for 30 days.
+                {t("environments.settings.enterprise.unlock_the_full_power_of_formbricks_free_for_30_days")}
               </h2>
               <p className="text-md mt-6 leading-8 text-slate-300">
-                Keep full control over your data privacy and security.
+                {t("environments.settings.enterprise.keep_full_control_over_your_data_privacy_and_security")}
                 <br />
-                Get an Enterprise license to get access to all features.
+                {t(
+                  "environments.settings.enterprise.get_an_enterprise_license_to_get_access_to_all_features"
+                )}
               </p>
             </div>
           </div>
           <div className="mt-8 rounded-lg border border-slate-300 bg-slate-100 shadow-sm">
             <div className="p-8">
-              <h2 className="mr-2 inline-flex text-2xl font-bold text-slate-700">Enterprise Features</h2>
+              <h2 className="mr-2 inline-flex text-2xl font-bold text-slate-700">
+                {t("environments.settings.enterprise.enterprise_features")}
+              </h2>
               <ul className="my-4 space-y-4">
-                {paidFeatures.map((feature, index) => (
-                  <li key={index} className="flex items-center">
+                {paidFeatures.map((feature) => (
+                  <li key={feature.title} className="flex items-center">
                     <div className="rounded-full border border-green-300 bg-green-100 p-0.5 dark:bg-green-800">
                       <CheckIcon className="h-5 w-5 p-0.5 text-green-500 dark:text-green-400" />
                     </div>
                     <span className="ml-2 text-sm text-slate-500 dark:text-slate-400">{feature.title}</span>
                     {feature.comingSoon && (
                       <span className="mx-2 rounded-full bg-blue-100 px-3 py-1 text-xs text-blue-700 dark:bg-slate-700 dark:text-teal-500">
-                        coming soon
+                        {t("environments.settings.enterprise.coming_soon")}
                       </span>
                     )}
                     {feature.onRequest && (
                       <span className="mx-2 rounded-full bg-violet-100 px-3 py-1 text-xs text-violet-700 dark:bg-slate-700 dark:text-teal-500">
-                        on request
+                        {t("environments.settings.enterprise.on_request")}
                       </span>
                     )}
                   </li>
                 ))}
               </ul>
-              <p className="my-6 text-sm  text-slate-700">
-                No call needed, no strings attached: Request a free 30-day trial license to test all features
-                by filling out this form:
+              <p className="my-6 text-sm text-slate-700">
+                {t(
+                  "environments.settings.enterprise.no_call_needed_no_strings_attached_request_a_free_30_day_trial_license_to_test_all_features_by_filling_out_this_form"
+                )}
               </p>
-              <Button
-                variant="darkCTA"
-                href="https://app.formbricks.com/s/clvupq3y205i5yrm3sm9v1xt5"
-                target="_blank">
-                Request 30-day Trial License
+              <Button asChild>
+                <Link
+                  href="https://app.formbricks.com/s/clvupq3y205i5yrm3sm9v1xt5"
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                  referrerPolicy="no-referrer">
+                  {t("environments.settings.enterprise.request_30_day_trial_license")}
+                </Link>
               </Button>
-              <p className="mt-2 text-xs  text-slate-500">No credit card. No sales call. Just test it :)</p>
+              <p className="mt-2 text-xs text-slate-500">
+                {t("environments.settings.enterprise.no_credit_card_no_sales_call_just_test_it")}
+              </p>
             </div>
           </div>
         </div>

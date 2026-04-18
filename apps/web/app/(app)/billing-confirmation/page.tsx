@@ -1,15 +1,12 @@
 import { ConfirmationPage } from "@/app/(app)/billing-confirmation/components/ConfirmationPage";
-
-import { PageContentWrapper } from "@formbricks/ui/PageContentWrapper";
+import { PageContentWrapper } from "@/modules/ui/components/page-content-wrapper";
 
 export const dynamic = "force-dynamic";
 
-const Page = ({ searchParams }) => {
-  const { environmentId } = searchParams;
-
+const Page = async () => {
   return (
     <PageContentWrapper>
-      <ConfirmationPage environmentId={environmentId?.toString()} />
+      <ConfirmationPage />
     </PageContentWrapper>
   );
 };

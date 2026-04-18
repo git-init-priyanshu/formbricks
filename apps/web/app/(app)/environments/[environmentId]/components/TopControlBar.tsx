@@ -1,27 +1,59 @@
-import { TopControlButtons } from "@/app/(app)/environments/[environmentId]/components/TopControlButtons";
-import { WidgetStatusIndicator } from "@/app/(app)/environments/[environmentId]/components/WidgetStatusIndicator";
+"use client";
 
-import { IS_FORMBRICKS_CLOUD } from "@formbricks/lib/constants";
 import { TEnvironment } from "@formbricks/types/environment";
+import { TOrganizationRole } from "@formbricks/types/memberships";
+import { ProjectAndOrgSwitch } from "@/app/(app)/environments/[environmentId]/components/project-and-org-switch";
+import { useEnvironment } from "@/app/(app)/environments/[environmentId]/context/environment-context";
+import { getAccessFlags } from "@/lib/membership/utils";
 
-interface SideBarProps {
-  environment: TEnvironment;
+interface TopControlBarProps {
   environments: TEnvironment[];
+  currentOrganizationId: string;
+  currentProjectId: string;
+  isMultiOrgEnabled: boolean;
+  organizationProjectsLimit: number;
+  isFormbricksCloud: boolean;
+  isLicenseActive: boolean;
+  isOwnerOrManager: boolean;
+  isAccessControlAllowed: boolean;
+  membershipRole?: TOrganizationRole;
 }
 
-export const TopControlBar = ({ environment, environments }: SideBarProps) => {
+export const TopControlBar = ({
+  environments,
+  currentOrganizationId,
+  currentProjectId,
+  isMultiOrgEnabled,
+  organizationProjectsLimit,
+  isFormbricksCloud,
+  isLicenseActive,
+  isOwnerOrManager,
+  isAccessControlAllowed,
+  membershipRole,
+}: TopControlBarProps) => {
+  const { isMember, isBilling } = getAccessFlags(membershipRole);
+  const isMembershipPending = membershipRole === undefined;
+  const { environment } = useEnvironment();
+
   return (
-    <div className="fixed inset-0 top-0 z-30 flex h-14 w-full items-center justify-end bg-slate-50 px-6">
-      <div className="shadow-xs z-10">
-        <div className="flex w-fit space-x-2 py-2">
-          <WidgetStatusIndicator environment={environment} type="mini" />
-          <TopControlButtons
-            environment={environment}
-            environments={environments}
-            isFormbricksCloud={IS_FORMBRICKS_CLOUD}
-          />
-        </div>
-      </div>
+    <div
+      className="flex h-14 w-full items-center justify-between bg-slate-50 px-6"
+      data-testid="fb__global-top-control-bar">
+      <ProjectAndOrgSwitch
+        currentEnvironmentId={environment.id}
+        environments={environments}
+        currentOrganizationId={currentOrganizationId}
+        currentProjectId={currentProjectId}
+        isMultiOrgEnabled={isMultiOrgEnabled}
+        organizationProjectsLimit={organizationProjectsLimit}
+        isFormbricksCloud={isFormbricksCloud}
+        isLicenseActive={isLicenseActive}
+        isOwnerOrManager={isOwnerOrManager}
+        isMember={isMember}
+        isBilling={isBilling}
+        isMembershipPending={isMembershipPending}
+        isAccessControlAllowed={isAccessControlAllowed}
+      />
     </div>
   );
 };

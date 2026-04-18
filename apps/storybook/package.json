@@ -4,32 +4,26 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint": "eslint . --config .eslintrc.cjs --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "clean": "rimraf .turbo node_modules dist storybook-static"
   },
-  "dependencies": {
-    "@formbricks/ui": "workspace:*",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
   "devDependencies": {
-    "@formbricks/tsconfig": "workspace:*",
-    "@storybook/addon-essentials": "^8.0.10",
-    "@storybook/addon-interactions": "^8.0.10",
-    "@storybook/addon-links": "^8.0.10",
-    "@storybook/addon-onboarding": "^8.0.10",
-    "@storybook/blocks": "^8.0.10",
-    "@storybook/react": "^8.0.10",
-    "@storybook/react-vite": "^8.0.10",
-    "@storybook/testing-library": "^0.2.2",
-    "@typescript-eslint/eslint-plugin": "^7.8.0",
-    "@typescript-eslint/parser": "^7.8.0",
-    "@vitejs/plugin-react": "^4.2.1",
-    "esbuild": "^0.21.1",
-    "tsup": "^8.0.2",
-    "vite": "^5.2.11"
+    "@chromatic-com/storybook": "^5.0.1",
+    "@storybook/addon-a11y": "10.2.17",
+    "@storybook/addon-links": "10.2.17",
+    "@storybook/addon-onboarding": "10.2.17",
+    "@storybook/react-vite": "10.2.17",
+    "@typescript-eslint/eslint-plugin": "8.57.0",
+    "@tailwindcss/vite": "4.2.1",
+    "@typescript-eslint/parser": "8.57.0",
+    "@vitejs/plugin-react": "5.1.4",
+    "eslint-plugin-react-refresh": "0.4.26",
+    "eslint-plugin-storybook": "10.2.17",
+    "storybook": "10.2.17",
+    "vite": "7.3.1",
+    "@storybook/addon-docs": "10.2.17"
   }
 }

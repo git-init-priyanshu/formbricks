@@ -1,23 +1,36 @@
-import { responses } from "@/app/lib/api/response";
-
-import { getApiKeyFromKey } from "@formbricks/lib/apiKey/service";
+import { NextRequest } from "next/server";
 import { TAuthenticationApiKey } from "@formbricks/types/auth";
 import { DatabaseError, InvalidInputError, ResourceNotFoundError } from "@formbricks/types/errors";
+import { responses } from "@/app/lib/api/response";
+import { getApiKeyWithPermissions } from "@/modules/organization/settings/api-keys/lib/api-key";
 
-export const authenticateRequest = async (request: Request): Promise<TAuthenticationApiKey | null> => {
+export const authenticateRequest = async (request: NextRequest): Promise<TAuthenticationApiKey | null> => {
   const apiKey = request.headers.get("x-api-key");
-  if (apiKey) {
-    const apiKeyData = await getApiKeyFromKey(apiKey);
-    if (apiKeyData) {
-      const authentication: TAuthenticationApiKey = {
-        type: "apiKey",
-        environmentId: apiKeyData.environmentId,
-      };
-      return authentication;
-    }
-    return null;
-  }
-  return null;
+  if (!apiKey) return null;
+
+  // Get API key with permissions
+  const apiKeyData = await getApiKeyWithPermissions(apiKey);
+  if (!apiKeyData) return null;
+
+  // In the route handlers, we'll do more specific permission checks
+  const environmentIds = apiKeyData.apiKeyEnvironments.map((env) => env.environmentId);
+  if (environmentIds.length === 0) return null;
+
+  const authentication: TAuthenticationApiKey = {
+    type: "apiKey",
+    environmentPermissions: apiKeyData.apiKeyEnvironments.map((env) => ({
+      environmentId: env.environmentId,
+      environmentType: env.environment.type,
+      permission: env.permission,
+      projectId: env.environment.projectId,
+      projectName: env.environment.project.name,
+    })),
+    apiKeyId: apiKeyData.id,
+    organizationId: apiKeyData.organizationId,
+    organizationAccess: apiKeyData.organizationAccess,
+  };
+
+  return authentication;
 };
 
 export const handleErrorResponse = (error: any): Response => {

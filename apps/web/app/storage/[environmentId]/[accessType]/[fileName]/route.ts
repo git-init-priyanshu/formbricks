@@ -1,21 +1,23 @@
-import { authenticateRequest } from "@/app/api/v1/auth";
+import { getServerSession } from "next-auth";
+import { type NextRequest } from "next/server";
+import { logger } from "@formbricks/logger";
+import { ZDeleteFileRequest, ZDownloadFileRequest } from "@formbricks/types/storage";
 import { responses } from "@/app/lib/api/response";
 import { transformErrorToDetails } from "@/app/lib/api/validator";
-import { handleDeleteFile } from "@/app/storage/[environmentId]/[accessType]/[fileName]/lib/deleteFile";
-import { getServerSession } from "next-auth";
-import { NextRequest } from "next/server";
-
-import { authOptions } from "@formbricks/lib/authOptions";
-import { hasUserEnvironmentAccess } from "@formbricks/lib/environment/auth";
-import { ZStorageRetrievalParams } from "@formbricks/types/storage";
-
-import { getFile } from "./lib/getFile";
+import { authorizePrivateDownload } from "@/app/storage/[environmentId]/[accessType]/[fileName]/lib/auth";
+import { authOptions } from "@/modules/auth/lib/authOptions";
+import { applyRateLimit } from "@/modules/core/rate-limit/helpers";
+import { rateLimitConfigs } from "@/modules/core/rate-limit/rate-limit-configs";
+import { deleteFile, getFileStreamForDownload } from "@/modules/storage/service";
+import { getErrorResponseFromStorageError } from "@/modules/storage/utils";
+import { logFileDeletion } from "./lib/audit-logs";
 
 export const GET = async (
   request: NextRequest,
-  { params }: { params: { environmentId: string; accessType: string; fileName: string } }
-) => {
-  const paramValidation = ZStorageRetrievalParams.safeParse(params);
+  props: { params: Promise<{ environmentId: string; accessType: string; fileName: string }> }
+): Promise<Response> => {
+  const params = await props.params;
+  const paramValidation = ZDownloadFileRequest.safeParse(params);
 
   if (!paramValidation.success) {
     return responses.badRequestResponse(
@@ -25,75 +27,120 @@ export const GET = async (
     );
   }
 
-  const { environmentId, accessType, fileName: fileNameOG } = params;
+  const { environmentId, accessType, fileName } = paramValidation.data;
 
-  const fileName = decodeURIComponent(fileNameOG);
-
-  if (accessType === "public") {
-    return await getFile(environmentId, accessType, fileName);
+  // check auth
+  if (accessType === "private") {
+    const authResult = await authorizePrivateDownload(request, environmentId, "GET");
+    if (!authResult.ok) {
+      return authResult.error.unauthorized
+        ? responses.unauthorizedResponse()
+        : responses.notAuthenticatedResponse();
+    }
   }
 
-  // if the user is authenticated via the session
+  // Stream the file directly
+  const streamResult = await getFileStreamForDownload(fileName, environmentId, accessType);
 
-  const session = await getServerSession(authOptions);
-
-  if (!session || !session.user) {
-    // check for api key auth
-    const res = await authenticateRequest(request);
-
-    if (!res) {
-      return responses.notAuthenticatedResponse();
-    }
-
-    return await getFile(environmentId, accessType, fileName);
-  } else {
-    const isUserAuthorized = await hasUserEnvironmentAccess(session.user.id, environmentId);
-
-    if (!isUserAuthorized) {
-      return responses.unauthorizedResponse();
-    }
-
-    return await getFile(environmentId, accessType, fileName);
+  if (!streamResult.ok) {
+    const errorResponse = getErrorResponseFromStorageError(streamResult.error, { fileName });
+    return errorResponse;
   }
+
+  const { body, contentType, contentLength } = streamResult.data;
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": contentType,
+      ...(contentLength > 0 && { "Content-Length": String(contentLength) }),
+      "Cache-Control":
+        accessType === "private"
+          ? "no-store, no-cache, must-revalidate"
+          : "public, max-age=31536000, immutable",
+    },
+  });
 };
 
-export const DELETE = async (_: NextRequest, { params }: { params: { fileName: string } }) => {
-  if (!params.fileName) {
-    return responses.badRequestResponse("Fields are missing or incorrectly formatted", {
-      fileName: "fileName is required",
-    });
-  }
-
-  const [environmentId, accessType, file] = params.fileName.split("/");
-
-  const paramValidation = ZStorageRetrievalParams.safeParse({ fileName: file, environmentId, accessType });
-
+export const DELETE = async (
+  request: NextRequest,
+  props: { params: Promise<{ environmentId: string; accessType: string; fileName: string }> }
+): Promise<Response> => {
+  const params = await props.params;
+  const paramValidation = ZDeleteFileRequest.safeParse(params);
   if (!paramValidation.success) {
-    return responses.badRequestResponse(
-      "Fields are missing or incorrectly formatted",
-      transformErrorToDetails(paramValidation.error),
-      true
-    );
+    const errorDetails = transformErrorToDetails(paramValidation.error);
+
+    await logFileDeletion({
+      failureReason: "Parameter validation failed",
+      environmentId: params.environmentId,
+      apiUrl: request.url,
+    });
+
+    return responses.badRequestResponse("Fields are missing or incorrectly formatted", errorDetails, true);
   }
-  // check if user is authenticated
+
+  const { environmentId, accessType, fileName } = paramValidation.data;
 
   const session = await getServerSession(authOptions);
 
-  if (!session || !session.user) {
-    return responses.notAuthenticatedResponse();
+  const authResult = await authorizePrivateDownload(request, environmentId, "DELETE");
+
+  if (!authResult.ok) {
+    await logFileDeletion({
+      failureReason: authResult.error.unauthorized
+        ? "User not authorized to access environment"
+        : "User not authenticated",
+      accessType,
+      environmentId,
+      apiUrl: request.url,
+    });
+
+    return authResult.error.unauthorized
+      ? responses.unauthorizedResponse()
+      : responses.notAuthenticatedResponse();
   }
 
-  // check if the user has access to the environment
-
-  const isUserAuthorized = await hasUserEnvironmentAccess(session.user.id, environmentId);
-
-  if (!isUserAuthorized) {
-    return responses.unauthorizedResponse();
+  if (authResult.ok) {
+    try {
+      if (authResult.data.authType === "apiKey") {
+        await applyRateLimit(rateLimitConfigs.storage.delete, authResult.data.apiKeyId);
+      } else {
+        await applyRateLimit(rateLimitConfigs.storage.delete, authResult.data.userId);
+      }
+    } catch (error) {
+      return responses.tooManyRequestsResponse(
+        error instanceof Error ? error.message : "Unknown error occurred"
+      );
+    }
   }
 
-  return await handleDeleteFile(
-    paramValidation.data.environmentId,
-    paramValidation.data.accessType,
-    paramValidation.data.fileName
-  );
+  const deleteResult = await deleteFile(environmentId, accessType, decodeURIComponent(fileName));
+
+  const isSuccess = deleteResult.ok;
+
+  if (!isSuccess) {
+    logger.error({ error: deleteResult.error }, "Error deleting file");
+
+    await logFileDeletion({
+      failureReason: deleteResult.error.code,
+      accessType,
+      userId: session?.user?.id,
+      environmentId,
+      apiUrl: request.url,
+    });
+
+    const errorResponse = getErrorResponseFromStorageError(deleteResult.error, { fileName });
+    return errorResponse;
+  }
+
+  await logFileDeletion({
+    status: "success",
+    accessType,
+    userId: session?.user?.id,
+    environmentId,
+    apiUrl: request.url,
+  });
+
+  return responses.successResponse("File deleted successfully");
 };

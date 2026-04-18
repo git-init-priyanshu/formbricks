@@ -1,89 +1,93 @@
-export const users = {
+const MOCK_PASSWORD = "Mock_password_for_testing_0nly";
+
+export const mockUsers = {
   signup: [
     {
       name: "SignUp Flow User 1",
       email: "signup1@formbricks.com",
-      password: "eN791hZ7wNr9IAscf@",
+      password: MOCK_PASSWORD,
     },
   ],
   onboarding: [
     {
       name: "Onboarding User 1",
       email: "onboarding1@formbricks.com",
-      password: "iHalLonErFGK$X901R0",
+      password: MOCK_PASSWORD,
     },
     {
       name: "Onboarding User 2",
       email: "onboarding2@formbricks.com",
-      password: "231Xh7D&dM8u75EjIYV",
+      password: MOCK_PASSWORD,
+    },
+    {
+      name: "Onboarding User 3",
+      email: "onboarding3@formbricks.com",
+      password: MOCK_PASSWORD,
     },
   ],
   survey: [
     {
       name: "Survey User 1",
       email: "survey1@formbricks.com",
-      password: "Y1I*EpURUSb32j5XijP",
+      password: MOCK_PASSWORD,
     },
     {
       name: "Survey User 2",
       email: "survey2@formbricks.com",
-      password: "G73*Gjif22F4JKM1pA",
+      password: MOCK_PASSWORD,
     },
     {
       name: "Survey User 3",
       email: "survey3@formbricks.com",
-      password: "Gj2DGji27D&M8u53V",
+      password: MOCK_PASSWORD,
     },
     {
       name: "Survey User 4",
       email: "survey4@formbricks.com",
-      password: "UU3efj8vJa&M8u5M1",
+      password: MOCK_PASSWORD,
     },
   ],
   js: [
     {
       name: "JS User 1",
       email: "js1@formbricks.com",
-      password: "XpP%X9UU3efj8vJa",
+      password: MOCK_PASSWORD,
     },
   ],
   action: [
     {
       name: "Action User 1",
       email: "action1@formbricks.com",
-      password: "XpP%X9UU3efj8vJa",
     },
     {
       name: "Action User 2",
       email: "action2@formbricks.com",
-      password: "XpP%X9UU3efj8vJa",
     },
     {
       name: "Action User 3",
       email: "action3@formbricks.com",
-      password: "XpP%X9UU3efj8vJa",
     },
     {
       name: "Action User 4",
       email: "action4@formbricks.com",
-      password: "XpP%X9UU3efj8vJa",
     },
     {
       name: "Action User 5",
       email: "action5@formbricks.com",
-      password: "XpP%X9UU3efj8vJa",
+    },
+    {
+      name: "Action User 6",
+      email: "action6@formbricks.com",
     },
   ],
   organization: [
     {
       name: "Organization User 1",
       email: "organization1@formbricks.com",
-      password: "Test#1234",
     },
     {
       name: "Organization User 2",
       email: "organization2@formbricks.com",
-      password: "Test#1234",
     },
   ],
 };
@@ -93,7 +97,7 @@ export const organizations = {
     {
       role: "Founder",
       useCase: "Increase conversion",
-      productName: "My Product",
+      projectName: "My Workspace",
     },
   ],
 };
@@ -102,68 +106,157 @@ export const surveys = {
   createAndSubmit: {
     welcomeCard: {
       headline: "Welcome to My Testing Survey Welcome Card!",
-      description: "This is the description of my Welcome Card!",
+      description: "the description of my Welcome Card!",
     },
     openTextQuestion: {
-      question: "This is my Open Text Question",
-      description: "This is my Open Text Description",
-      placeholder: "This is my Placeholder",
+      question: "Open Text Question",
+      description: "Open Text Description",
+      placeholder: "Placeholder",
     },
     singleSelectQuestion: {
-      question: "This is my Single Select Question",
-      description: "This is my Single Select Description",
+      question: "Single Select Question",
+      description: "Single Select Description",
       options: ["Option 1", "Option 2"],
     },
     multiSelectQuestion: {
-      question: "This is my Multi Select Question",
-      description: "This is Multi Select Description",
+      question: "Multi Select Question",
+      description: "Multi Select Description",
       options: ["Option 1", "Option 2", "Option 3"],
     },
     ratingQuestion: {
-      question: "This is my Rating Question",
-      description: "This is Rating Description",
+      question: "Rating Question",
+      description: "Rating Description",
       lowLabel: "My Lower Label",
       highLabel: "My Upper Label",
     },
     npsQuestion: {
-      question: "This is my NPS Question",
+      question: "NPS Question",
       lowLabel: "My Lower Label",
       highLabel: "My Upper Label",
     },
     ctaQuestion: {
-      question: "This is my CTA Question",
+      question: "CTA Question",
       buttonLabel: "My Button Label",
     },
     consentQuestion: {
-      question: "This is my Consent Question",
+      question: "Consent Question",
       checkboxLabel: "My Checkbox Label",
     },
     pictureSelectQuestion: {
-      question: "This is my Picture Select Question",
-      description: "This is Picture Select Description",
+      question: "Picture Select Question",
+      description: "Picture Select Description",
+    },
+    dateQuestion: {
+      question: "Date Question",
     },
     fileUploadQuestion: {
-      question: "This is my File Upload Question",
+      question: "File Upload Question",
     },
     matrix: {
       question: "How much do you love these flowers?",
       description: "0: Not at all, 3: Love it",
-      rows: ["Rose 🌹", "Sunflower 🌻", "Hibiscus 🌺"],
+      rows: ["Roses", "Trees", "Ocean"],
       columns: ["0", "1", "2", "3"],
     },
     address: {
       question: "Where do you live?",
-      placeholder: "Address Line 1",
+      placeholder: {
+        addressLine1: "Address Line 1",
+        city: "City",
+        zip: "Zip",
+      },
     },
-    thankYouCard: {
-      headline: "This is my Thank You Card Headline!",
-      description: "This is my Thank you Card Description!",
+    contactInfo: {
+      question: "Contact Info",
+      placeholder: "First Name",
+    },
+    ranking: {
+      question: "What is most important for you in life?",
+      choices: ["Work", "Money", "Travel", "Family", "Friends"],
+    },
+  },
+  createWithLogicAndSubmit: {
+    welcomeCard: {
+      headline: "Welcome to My Testing Survey Welcome Card!",
+      description: "the description of my Welcome Card!",
+    },
+    openTextQuestion: {
+      question: "Open Text Question",
+      description: "Open Text Description",
+      placeholder: "Placeholder",
+    },
+    singleSelectQuestion: {
+      question: "Single Select Question",
+      description: "Single Select Description",
+      options: ["Option 1", "Option 2"],
+    },
+    multiSelectQuestion: {
+      question: "Multi Select Question",
+      description: "Multi Select Description",
+      options: ["Option 1", "Option 2", "Option 3"],
+    },
+    ratingQuestion: {
+      question: "Rating Question",
+      description: "Rating Description",
+      lowLabel: "My Lower Label",
+      highLabel: "My Upper Label",
+    },
+    npsQuestion: {
+      question: "NPS Question",
+      lowLabel: "My Lower Label",
+      highLabel: "My Upper Label",
+    },
+    ctaQuestion: {
+      question: "CTA Question",
+      buttonLabel: "My Button Label",
+    },
+    consentQuestion: {
+      question: "Consent Question",
+      checkboxLabel: "My Checkbox Label",
+    },
+    pictureSelectQuestion: {
+      question: "Picture Select Question",
+      description: "Picture Select Description",
+    },
+    fileUploadQuestion: {
+      question: "File Upload Question",
+    },
+    date: {
+      question: "Date Question",
+    },
+    cal: {
+      question: "cal Question",
+    },
+    matrix: {
+      question: "Matrix Question",
+      description: "0: Not at all, 3: Love it",
+      rows: ["Roses", "Trees", "Ocean"],
+      columns: ["0", "1", "2", "3"],
+    },
+    address: {
+      question: "Where do you live?",
+      placeholder: {
+        addressLine1: "Address Line 1",
+        city: "City",
+        zip: "Zip",
+      },
+    },
+    ranking: {
+      question: "Ranking Question",
+      choices: ["Work", "Money", "Travel", "Family", "Friends"],
+    },
+    endingCard: {
+      headline: "Thank you!",
+      description: "We appreciate your feedback.",
     },
   },
   germanCreate: {
+    next: "Weiter",
+    back: "Zurück",
     welcomeCard: {
       headline: "Willkommen zu meiner Testumfrage Willkommenskarte!", // German translation
       description: "Dies ist die Beschreibung meiner Willkommenskarte!", // German translation
+      buttonLabel: "Weiter",
     },
     openTextQuestion: {
       question: "Dies ist meine offene Textfrage", // German translation
@@ -220,81 +313,99 @@ export const surveys = {
     },
     addressQuestion: {
       question: "Wo wohnst du ?",
+      placeholder: {
+        addressLine1: "Adresse",
+        addressLine2: "Adresse",
+        city: "Adresse",
+        state: "Adresse",
+        zip: "Adresse",
+        country: "Adresse",
+      },
     },
-    thankYouCard: {
+    endingCard: {
       headline: "Dies ist meine Dankeskarte Überschrift!", // German translation
       description: "Dies ist meine Beschreibung zur Dankeskarte!", // German translation
       buttonLabel: "Erstellen Sie Ihre eigene Umfrage",
+    },
+    ranking: {
+      question: "Was ist für Sie im Leben am wichtigsten?",
+      choices: ["Arbeit", "Geld", "Reisen", "Familie", "Freunde"],
     },
   },
 };
 
 export type CreateSurveyParams = typeof surveys.createAndSubmit;
+export type CreateSurveyWithLogicParams = typeof surveys.createWithLogicAndSubmit;
 
 export const actions = {
   create: {
     noCode: {
-      cssSelector: {
-        name: "Create Action (CSS Selector)",
-        description: "This is my Create Action (CSS Selector)",
+      click: {
+        name: "Create Click Action (CSS Selector)",
+        description: "Create Action (click, CSS Selector)",
         selector: ".my-custom-class",
       },
-      pageURL: {
-        name: "Create Action (Page URL)",
-        description: "This is my Create Action (Page URL)",
+      pageView: {
+        name: "Create Page view Action (specific Page URL)",
+        description: "Create Action (Page view)",
         matcher: {
           label: "Contains",
           value: "custom-url",
         },
-        testURL: "http://localhost:3000/custom-url",
       },
-      innerText: {
-        name: "Create Action (Inner Text)",
-        description: "This is my Create Action (Inner Text)",
-        innerText: "Download",
+      exitIntent: {
+        name: "Create Exit Intent Action",
+        description: "Create Action (Exit Intent)",
+      },
+      fiftyPercentScroll: {
+        name: "Create 50% Scroll Action",
+        description: "Create Action (50% Scroll)",
       },
     },
     code: {
       name: "Create Action (Code)",
-      description: "This is my Create Action (Code)",
+      description: "Create Action (Code)",
       key: "Create Action (Code)",
     },
   },
   edit: {
     noCode: {
-      cssSelector: {
-        name: "Edit Action (CSS Selector)",
-        description: "This is my Edit Action (CSS Selector)",
+      click: {
+        name: "Edit Click Action (CSS Selector)",
+        description: "Edit Action (click, CSS Selector)",
         selector: ".my-custom-class-edited",
       },
-      pageURL: {
-        name: "Edit Action (Page URL)",
-        description: "This is my Edit Action (Page URL)",
+      pageView: {
+        name: "Edit Page view Action (specific Page URL)",
+        description: "Edit Action (Page view)",
         matcher: {
           label: "Starts with",
           value: "custom-url0-edited",
         },
         testURL: "http://localhost:3000/custom-url",
       },
-      innerText: {
-        name: "Edit Action (Inner Text)",
-        description: "This is my Edit Action (Inner Text)",
-        innerText: "Download Edited",
+      exitIntent: {
+        name: "Edit Exit Intent Action",
+        description: "Edit Action (Exit Intent)",
+      },
+      fiftyPercentScroll: {
+        name: "Edit 50% Scroll Action",
+        description: "Edit Action (50% Scroll)",
       },
     },
     code: {
-      description: "This is my Edit Action (Code)",
+      description: "Edit Action (Code)",
     },
   },
   delete: {
     noCode: {
-      name: "Delete Action (CSS Selector)",
-      description: "This is my Delete Action (CSS Selector)",
+      name: "Delete click Action (CSS Selector)",
+      description: "Delete Action (CSS Selector)",
       selector: ".my-custom-class-deleted",
     },
     code: {
       name: "Delete Action (Code)",
-      description: "This is my Delete Action (Code)",
+      description: "Delete Action (Code)",
     },
   },
 };

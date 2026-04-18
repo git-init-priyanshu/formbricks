@@ -1,7 +1,3 @@
-import { LoadingSpinner } from "@formbricks/ui/LoadingSpinner";
+import { SurveyListLoading } from "@/modules/survey/list/loading";
 
-const Loading = () => {
-  return <LoadingSpinner />;
-};
-
-export default Loading;
+export default SurveyListLoading;

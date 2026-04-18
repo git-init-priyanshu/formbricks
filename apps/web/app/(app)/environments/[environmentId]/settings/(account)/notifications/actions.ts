@@ -1,19 +1,26 @@
 "use server";
 
-import { getServerSession } from "next-auth";
+import { z } from "zod";
+import { ZUserNotificationSettings } from "@formbricks/types/user";
+import { getUser, updateUser } from "@/lib/user/service";
+import { authenticatedActionClient } from "@/lib/utils/action-client";
+import { withAuditLogging } from "@/modules/ee/audit-logs/lib/handler";
 
-import { authOptions } from "@formbricks/lib/authOptions";
-import { updateUser } from "@formbricks/lib/user/service";
-import { AuthorizationError } from "@formbricks/types/errors";
-import { TUserNotificationSettings } from "@formbricks/types/user";
+const ZUpdateNotificationSettingsAction = z.object({
+  notificationSettings: ZUserNotificationSettings,
+});
 
-export const updateNotificationSettingsAction = async (notificationSettings: TUserNotificationSettings) => {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    throw new AuthorizationError("Not authenticated");
-  }
-
-  await updateUser(session.user.id, {
-    notificationSettings,
-  });
-};
+export const updateNotificationSettingsAction = authenticatedActionClient
+  .inputSchema(ZUpdateNotificationSettingsAction)
+  .action(
+    withAuditLogging("updated", "user", async ({ ctx, parsedInput }) => {
+      const oldObject = await getUser(ctx.user.id);
+      const result = await updateUser(ctx.user.id, {
+        notificationSettings: parsedInput.notificationSettings,
+      });
+      ctx.auditLoggingCtx.userId = ctx.user.id;
+      ctx.auditLoggingCtx.oldObject = oldObject;
+      ctx.auditLoggingCtx.newObject = result;
+      return result;
+    })
+  );

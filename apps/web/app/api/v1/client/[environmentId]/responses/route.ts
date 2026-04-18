@@ -1,127 +1,210 @@
-import { responses } from "@/app/lib/api/response";
-import { transformErrorToDetails } from "@/app/lib/api/validator";
-import { sendToPipeline } from "@/app/lib/pipelines";
 import { headers } from "next/headers";
 import { UAParser } from "ua-parser-js";
-
-import { getPerson } from "@formbricks/lib/person/service";
-import { capturePosthogEnvironmentEvent } from "@formbricks/lib/posthogServer";
-import { createResponse } from "@formbricks/lib/response/service";
-import { getSurvey } from "@formbricks/lib/survey/service";
-import { ZId } from "@formbricks/types/environment";
+import { logger } from "@formbricks/logger";
+import { ZEnvironmentId } from "@formbricks/types/environment";
 import { InvalidInputError } from "@formbricks/types/errors";
-import { TResponse, TResponseInput, ZResponseInput } from "@formbricks/types/responses";
-
-interface Context {
-  params: {
-    environmentId: string;
-  };
-}
+import { TResponseWithQuotaFull } from "@formbricks/types/quota";
+import { TResponseInput, ZResponseInput } from "@formbricks/types/responses";
+import { TSurvey } from "@formbricks/types/surveys/types";
+import { responses } from "@/app/lib/api/response";
+import { transformErrorToDetails } from "@/app/lib/api/validator";
+import { THandlerParams, withV1ApiWrapper } from "@/app/lib/api/with-api-logging";
+import { sendToPipeline } from "@/app/lib/pipelines";
+import { getSurvey } from "@/lib/survey/service";
+import { getClientIpFromHeaders } from "@/lib/utils/client-ip";
+import { getOrganizationIdFromEnvironmentId } from "@/lib/utils/helper";
+import { formatValidationErrorsForV1Api, validateResponseData } from "@/modules/api/lib/validation";
+import { getIsContactsEnabled } from "@/modules/ee/license-check/lib/utils";
+import { createQuotaFullObject } from "@/modules/ee/quotas/lib/helpers";
+import { validateFileUploads } from "@/modules/storage/utils";
+import { createResponseWithQuotaEvaluation } from "./lib/response";
 
 export const OPTIONS = async (): Promise<Response> => {
-  return responses.successResponse({}, true);
+  return responses.successResponse(
+    {},
+    true,
+    // Cache CORS preflight responses for 1 hour (conservative approach)
+    // Balances performance gains with flexibility for CORS policy changes
+    "public, s-maxage=3600, max-age=3600"
+  );
 };
 
-export const POST = async (request: Request, context: Context): Promise<Response> => {
-  const { environmentId } = context.params;
-  const environmentIdValidation = ZId.safeParse(environmentId);
+const validateResponse = (responseInputData: TResponseInput, survey: TSurvey) => {
+  // Validate response data against validation rules
+  const validationErrors = validateResponseData(
+    survey.blocks,
+    responseInputData.data,
+    responseInputData.language ?? "en",
+    survey.questions
+  );
 
-  if (!environmentIdValidation.success) {
-    return responses.badRequestResponse(
-      "Fields are missing or incorrectly formatted",
-      transformErrorToDetails(environmentIdValidation.error),
-      true
-    );
+  if (validationErrors) {
+    return {
+      response: responses.badRequestResponse(
+        "Validation failed",
+        formatValidationErrorsForV1Api(validationErrors),
+        true
+      ),
+    };
   }
+};
 
-  const responseInput = await request.json();
+export const POST = withV1ApiWrapper({
+  handler: async ({ req, props }: THandlerParams<{ params: Promise<{ environmentId: string }> }>) => {
+    const params = await props.params;
+    const requestHeaders = await headers();
+    let responseInput;
+    try {
+      responseInput = await req.json();
+    } catch (error) {
+      return {
+        response: responses.badRequestResponse(
+          "Invalid JSON in request body",
+          { error: error instanceof Error ? error.message : "Unknown error occurred" },
+          true
+        ),
+      };
+    }
 
-  // legacy workaround for formbricks-js 1.2.0 & 1.2.1
-  if (responseInput.personId && typeof responseInput.personId === "string") {
-    const person = await getPerson(responseInput.personId);
-    responseInput.userId = person?.userId;
-    delete responseInput.personId;
-  }
+    const { environmentId } = params;
+    const environmentIdValidation = ZEnvironmentId.safeParse(environmentId);
+    const responseInputValidation = ZResponseInput.safeParse({ ...responseInput, environmentId });
 
-  const agent = UAParser(request.headers.get("user-agent"));
-  const country =
-    headers().get("CF-IPCountry") ||
-    headers().get("X-Vercel-IP-Country") ||
-    headers().get("CloudFront-Viewer-Country") ||
-    undefined;
-  const inputValidation = ZResponseInput.safeParse({ ...responseInput, environmentId });
+    if (!environmentIdValidation.success) {
+      return {
+        response: responses.badRequestResponse(
+          "Fields are missing or incorrectly formatted",
+          transformErrorToDetails(environmentIdValidation.error),
+          true
+        ),
+      };
+    }
 
-  if (!inputValidation.success) {
-    return responses.badRequestResponse(
-      "Fields are missing or incorrectly formatted",
-      transformErrorToDetails(inputValidation.error),
-      true
-    );
-  }
+    if (!responseInputValidation.success) {
+      return {
+        response: responses.badRequestResponse(
+          "Fields are missing or incorrectly formatted",
+          transformErrorToDetails(responseInputValidation.error),
+          true
+        ),
+      };
+    }
 
-  // get and check survey
-  const survey = await getSurvey(responseInput.surveyId);
-  if (!survey) {
-    return responses.notFoundResponse("Survey", responseInput.surveyId, true);
-  }
-  if (survey.environmentId !== environmentId) {
-    return responses.badRequestResponse(
-      "Survey is part of another environment",
-      {
-        "survey.environmentId": survey.environmentId,
-        environmentId,
-      },
-      true
-    );
-  }
+    const userAgent = req.headers.get("user-agent") || undefined;
+    const agent = new UAParser(userAgent);
 
-  let response: TResponse;
-  try {
-    const meta: TResponseInput["meta"] = {
-      source: responseInput?.meta?.source,
-      url: responseInput?.meta?.url,
-      userAgent: {
-        browser: agent?.browser.name,
-        device: agent?.device.type || "desktop",
-        os: agent?.os.name,
-      },
-      country: country,
-      action: responseInput?.meta?.action,
+    const country =
+      requestHeaders.get("CF-IPCountry") ||
+      requestHeaders.get("X-Vercel-IP-Country") ||
+      requestHeaders.get("CloudFront-Viewer-Country") ||
+      undefined;
+
+    const responseInputData = responseInputValidation.data;
+
+    if (responseInputData.userId) {
+      const organizationId = await getOrganizationIdFromEnvironmentId(environmentId);
+      const isContactsEnabled = await getIsContactsEnabled(organizationId);
+      if (!isContactsEnabled) {
+        return {
+          response: responses.forbiddenResponse(
+            "User identification is only available for enterprise users.",
+            true
+          ),
+        };
+      }
+    }
+
+    // get and check survey
+    const survey = await getSurvey(responseInputData.surveyId);
+    if (!survey) {
+      return {
+        response: responses.notFoundResponse("Survey", responseInputData.surveyId, true),
+      };
+    }
+    if (survey.environmentId !== environmentId) {
+      return {
+        response: responses.badRequestResponse("Survey does not belong to this environment", undefined, true),
+      };
+    }
+
+    if (!validateFileUploads(responseInputData.data, survey.questions)) {
+      return {
+        response: responses.badRequestResponse("Invalid file upload response"),
+      };
+    }
+
+    const validationResult = validateResponse(responseInputData, survey);
+    if (validationResult) {
+      return validationResult;
+    }
+
+    let response: TResponseWithQuotaFull;
+    try {
+      const meta: TResponseInput["meta"] = {
+        source: responseInputData?.meta?.source,
+        url: responseInputData?.meta?.url,
+        userAgent: {
+          browser: agent.getBrowser().name,
+          device: agent.getDevice().type || "desktop",
+          os: agent.getOS().name,
+        },
+        country: country,
+        action: responseInputData?.meta?.action,
+      };
+
+      // Capture IP address if the survey has IP capture enabled
+      // Server-derived IP always overwrites any client-provided value
+      if (survey.isCaptureIpEnabled) {
+        const ipAddress = await getClientIpFromHeaders();
+        meta.ipAddress = ipAddress;
+      }
+
+      response = await createResponseWithQuotaEvaluation({
+        ...responseInputData,
+        meta,
+      });
+    } catch (error) {
+      if (error instanceof InvalidInputError) {
+        return {
+          response: responses.badRequestResponse(error.message),
+        };
+      } else {
+        logger.error({ error, url: req.url }, "Error creating response");
+        return {
+          response: responses.internalServerErrorResponse(
+            error instanceof Error ? error.message : "Unknown error occurred"
+          ),
+        };
+      }
+    }
+
+    const { quotaFull, ...responseData } = response;
+
+    sendToPipeline({
+      event: "responseCreated",
+      environmentId: survey.environmentId,
+      surveyId: responseData.surveyId,
+      response: responseData,
+    });
+
+    if (responseInput.finished) {
+      sendToPipeline({
+        event: "responseFinished",
+        environmentId: survey.environmentId,
+        surveyId: responseData.surveyId,
+        response: responseData,
+      });
+    }
+
+    const quotaObj = createQuotaFullObject(quotaFull);
+
+    const responseDataWithQuota = {
+      id: responseData.id,
+      ...quotaObj,
     };
 
-    response = await createResponse({
-      ...inputValidation.data,
-      meta,
-    });
-  } catch (error) {
-    if (error instanceof InvalidInputError) {
-      return responses.badRequestResponse(error.message);
-    } else {
-      console.error(error);
-      return responses.internalServerErrorResponse(error.message);
-    }
-  }
-
-  sendToPipeline({
-    event: "responseCreated",
-    environmentId: survey.environmentId,
-    surveyId: response.surveyId,
-    response: response,
-  });
-
-  if (responseInput.finished) {
-    sendToPipeline({
-      event: "responseFinished",
-      environmentId: survey.environmentId,
-      surveyId: response.surveyId,
-      response: response,
-    });
-  }
-
-  await capturePosthogEnvironmentEvent(survey.environmentId, "response created", {
-    surveyId: response.surveyId,
-    surveyType: survey.type,
-  });
-
-  return responses.successResponse({ id: response.id }, true);
-};
+    return {
+      response: responses.successResponse(responseDataWithQuota, true),
+    };
+  },
+});

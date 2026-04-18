@@ -1,11 +1,36 @@
-import { getLocalizedValue } from "@formbricks/lib/i18n/utils";
-import { structuredClone } from "@formbricks/lib/pollyfills/structuredClone";
-import { formatDateWithOrdinal, isValidDateString } from "@formbricks/lib/utils/datetime";
-import { extractFallbackValue, extractId, extractRecallInfo } from "@formbricks/lib/utils/recall";
-import { TResponseData } from "@formbricks/types/responses";
-import { TSurveyQuestion } from "@formbricks/types/surveys";
+import { type TResponseData, type TResponseVariables } from "@formbricks/types/responses";
+import { type TSurveyElement } from "@formbricks/types/surveys/elements";
+import { formatDateWithOrdinal, isValidDateString } from "@/lib/date-time";
+import { getLocalizedValue } from "@/lib/i18n";
 
-export const replaceRecallInfo = (text: string, responseData: TResponseData): string => {
+// Extracts the ID of recall question from a string containing the "recall" pattern.
+const extractId = (text: string): string | null => {
+  const pattern = /#recall:([A-Za-z0-9_-]+)/;
+  const match = text.match(pattern);
+  return match?.[1] ?? null;
+};
+
+// Extracts the fallback value from a string containing the "fallback" pattern.
+const extractFallbackValue = (text: string): string => {
+  const pattern = /fallback:([^#]*)#/;
+  const match = text.match(pattern);
+  return match?.[1] ?? "";
+};
+
+// Extracts the complete recall information (ID and fallback) from a headline string.
+const extractRecallInfo = (headline: string, id?: string): string | null => {
+  const idPattern = id ?? "[A-Za-z0-9_-]+";
+  const pattern = new RegExp(`#recall:(${idPattern})\\/fallback:([^#]*)#`);
+  const match = headline.match(pattern);
+  return match ? match[0] : null;
+};
+
+export const replaceRecallInfo = (
+  text: string,
+  responseData: TResponseData,
+  variables: TResponseVariables,
+  languageCode: string = "en-US"
+): string => {
   let modifiedText = text;
 
   while (modifiedText.includes("recall:")) {
@@ -15,50 +40,60 @@ export const replaceRecallInfo = (text: string, responseData: TResponseData): st
     const recallItemId = extractId(recallInfo);
     if (!recallItemId) return modifiedText; // Return the text if no ID could be extracted
 
-    const fallback = extractFallbackValue(recallInfo).replaceAll("nbsp", " ");
-    let value = null;
+    const fallback = extractFallbackValue(recallInfo).replace(/nbsp/g, " ").trim();
+    let value: string | null = null;
+
+    // Fetching value from variables based on recallItemId
+    if (variables[recallItemId] !== undefined) {
+      value = String(variables[recallItemId]) ?? fallback;
+    }
 
     // Fetching value from responseData or attributes based on recallItemId
-    if (responseData[recallItemId]) {
+    if (responseData[recallItemId] !== undefined) {
       value = (responseData[recallItemId] as string) ?? fallback;
     }
 
     // Additional value formatting if it exists
     if (value) {
       if (isValidDateString(value)) {
-        value = formatDateWithOrdinal(new Date(value));
+        value = formatDateWithOrdinal(new Date(value), languageCode);
       } else if (Array.isArray(value)) {
         value = value.filter((item) => item).join(", "); // Filters out empty values and joins with a comma
       }
     }
 
     // Replace the recallInfo in the text with the obtained or fallback value
-    modifiedText = modifiedText.replace(recallInfo, value || fallback);
+    modifiedText = modifiedText.replace(recallInfo, value?.toString() || fallback);
   }
 
   return modifiedText;
 };
 
 export const parseRecallInformation = (
-  question: TSurveyQuestion,
+  question: TSurveyElement,
   languageCode: string,
-  responseData: TResponseData
-) => {
-  const modifiedQuestion = structuredClone(question);
-  if (question.headline && question.headline[languageCode]?.includes("recall:")) {
+  responseData: TResponseData,
+  variables: TResponseVariables
+): TSurveyElement => {
+  const modifiedQuestion = JSON.parse(JSON.stringify(question));
+  if (question.headline[languageCode].includes("recall:")) {
     modifiedQuestion.headline[languageCode] = replaceRecallInfo(
       getLocalizedValue(modifiedQuestion.headline, languageCode),
-      responseData
+      responseData,
+      variables,
+      languageCode
     );
   }
   if (
     question.subheader &&
-    question.subheader[languageCode]?.includes("recall:") &&
+    question.subheader[languageCode].includes("recall:") &&
     modifiedQuestion.subheader
   ) {
     modifiedQuestion.subheader[languageCode] = replaceRecallInfo(
       getLocalizedValue(modifiedQuestion.subheader, languageCode),
-      responseData
+      responseData,
+      variables,
+      languageCode
     );
   }
   return modifiedQuestion;

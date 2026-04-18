@@ -1,5 +1,7 @@
 <div id="top"></div>
 
+<p align="center">Help us grow and star us on Github! ⭐️</p>
+
 <p align="center">
 
 <a href="https://formbricks.com">
@@ -11,14 +13,15 @@
 <h3 align="center">Formbricks</h3>
 
 <p align="center">
-Harvest user-insights, build irresistible experiences.
+The Open Source Qualtrics Alternative
 <br />
-<a href="https://formbricks.com/">Website</a> | <a href="https://formbricks.com/discord">Join Discord community</a>
+<a href="https://formbricks.com/">Website</a>
 </p>
 </p>
 
 <p align="center">
-<a href="https://github.com/formbricks/formbricks/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-AGPL-purple" alt="License"></a> <a href="https://formbricks.com/discord"><img src="https://img.shields.io/discord/979077669410979880?label=Discord&logo=discord&logoColor=%23fff" alt="Join Formbricks Discord"></a> <a href="https://github.com/formbricks/formbricks/stargazers"><img src="https://img.shields.io/github/stars/formbricks/formbricks?logo=github" alt="Github Stars"></a>
+<a href="https://github.com/formbricks/formbricks/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-AGPL-purple" alt="License"></a> <a href="https://github.com/formbricks/formbricks/stargazers"><img src="https://img.shields.io/github/stars/formbricks/formbricks?logo=github" alt="Github Stars"></a>
+<a href="https://insights.linuxfoundation.org/project/formbricks"><img src="https://insights.linuxfoundation.org/api/badge/health-score?project=formbricks"></a>
 <a href="https://news.ycombinator.com/item?id=32303986"><img src="https://img.shields.io/badge/Hacker%20News-122-%23FF6600" alt="Hacker News"></a>
 <a href="[https://www.producthunt.com/products/formbricks](https://www.producthunt.com/posts/formbricks)"><img src="https://img.shields.io/badge/Product%20Hunt-455-orange?logo=producthunt&logoColor=%23fff" alt="Product Hunt"></a>
 <a href="https://github.blog/2023-04-12-github-accelerator-our-first-cohort-and-whats-next/"><img src="https://img.shields.io/badge/2023-blue?logo=github&label=Github%20Accelerator" alt="Github Accelerator"></a>
@@ -124,27 +127,9 @@ Formbricks has a hosted cloud offering with a generous free plan to get you up a
 
 Formbricks is available Open-Source under AGPLv3 license. You can host Formbricks on your own servers using Docker without a subscription.
 
-If you opt for self-hosting Formbricks, here are a few options to consider:
-
 #### Docker
 
 To get started with self-hosting with Docker, take a look at our [self-hosting docs](https://formbricks.com/docs/self-hosting/deployment).
-
-#### Community-managed One Click Hosting
-
-##### Railway
-
-You can deploy Formbricks on [Railway](https://railway.app) using the button below.
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template/PPDzCd)
-
-##### RepoCloud
-
-Or you can also deploy Formbricks on [RepoCloud](https://repocloud.io) using the button below.
-
-[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploy.png)](https://repocloud.io/details/?app_id=254)
-
-<a id="development"></a>
 
 ## 👨‍💻 Development
 
@@ -160,7 +145,7 @@ Here is what you need to be able to run Formbricks:
 
 ### Local Setup
 
-To get started locally, we've got a [guide to help you](https://formbricks.com/docs/contributing/setup).
+To get started locally, we've got a [guide to help you](https://formbricks.com/docs/developer-docs/contributing/get-started#local-machine-setup).
 
 ### Gitpod Setup
 
@@ -184,7 +169,7 @@ Here are a few options:
 
 - Upvote issues with 👍 reaction so we know what the demand for a particular issue is to prioritize it within the roadmap.
 
-Please check out [our contribution guide](https://formbricks.com/docs/contributing/introduction) and our [list of open issues](https://github.com/formbricks/formbricks/issues) for more information.
+- Note: For the time being, we can only facilitate code contributions as an exception.
 
 ## All Thanks To Our Contributors
 
@@ -193,6 +178,14 @@ Please check out [our contribution guide](https://formbricks.com/docs/contributi
 <img src="https://contrib.rocks/image?repo=formbricks/formbricks" />
 
 </a>
+
+## Thanks
+
+Formbricks is supported by the following companies who provide us with their tools for free as part of their open-source support:
+
+<a href="https://www.chromatic.com/"><img src="https://user-images.githubusercontent.com/321738/84662277-e3db4f80-af1b-11ea-88f5-91d67a5e59f6.png" width="153" height="30" alt="Chromatic" /></a>
+&nbsp;&nbsp;&nbsp;&nbsp;
+<a href="https://sentry.io/"><img src="https://github.com/user-attachments/assets/d743ffd4-b575-4802-a29a-10136be9227e" width="150" height="30" alt="Sentry" /></a>
 
 <a id="contact-us"></a>
 
@@ -220,14 +213,14 @@ The Formbricks core application is licensed under the [AGPLv3 Open Source Licens
 
 ### The Enterprise Edition
 
-Additional to the AGPL licensed Formbricks core, this repository contains code licensed under an Enterprise license. The [code](https://github.com/formbricks/formbricks/tree/main/packages/ee) and [license](https://github.com/formbricks/formbricks/blob/main/packages/ee/LICENSE) for the enterprise functionality can be found in the `/packages/ee` folder of this repository. This additional functionality is not part of the AGPLv3 licensed Formbricks core and is designed to meet the needs of larger teams and enterprises. This advanced functionality is already included in the Docker images, but you need an [Enterprise License Key](https://formbricks.com/docs/self-hosting/enterprise) to unlock it.
+Additional to the AGPL licensed Formbricks core, this repository contains code licensed under an Enterprise license. The [code](https://github.com/formbricks/formbricks/tree/main/apps/web/modules/ee) and [license](https://github.com/formbricks/formbricks/blob/main/apps/web/modules/ee/LICENSE) for the enterprise functionality can be found in the `/apps/web/modules/ee` folder of this repository. This additional functionality is not part of the AGPLv3 licensed Formbricks core and is designed to meet the needs of larger teams and enterprises. This advanced functionality is already included in the Docker images, but you need an [Enterprise License Key](https://formbricks.com/docs/self-hosting/enterprise) to unlock it.
 
 ### White-Labeling Formbricks and Other Licensing Needs
 
-We currently do not offer Formbricks white-labeled. Any other needs? [Send us an email](mailto:hola@formbricks.com).
+We currently do not offer Formbricks white-labeled. That means that we don't sell a license which let's other companies resell Formbricks to third parties under their name nor take parts (like the survey editor) out of Formbricks to add to their own software products. Any other needs? [Send us an email](mailto:hola@formbricks.com).
 
 ### Why charge for Enterprise Features?
 
-The Enterprise Edition and White-Label Licenses allow us to fund the development of Formbricks sustainably. It guarantees that the open-source surveying infrastructure we're building will be around for decades to come.
+The Enterprise Edition allows us to fund the development of Formbricks sustainably. It guarantees that the free and open-source surveying infrastructure we're building will be around for decades to come.
 
-<p align="right"><a href="#top">🔼 Back to top</a></p>
+<a id="readme-de"></a>

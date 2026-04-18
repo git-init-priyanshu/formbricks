@@ -1,44 +1,52 @@
-import { responses } from "@/app/lib/api/response";
-import { getServerSession } from "next-auth";
-import { NextRequest } from "next/server";
 import * as z from "zod";
-
-import { getTables } from "@formbricks/lib/airtable/service";
-import { authOptions } from "@formbricks/lib/authOptions";
-import { hasUserEnvironmentAccess } from "@formbricks/lib/environment/auth";
-import { getIntegrationByType } from "@formbricks/lib/integration/service";
 import { TIntegrationAirtable } from "@formbricks/types/integration/airtable";
+import { responses } from "@/app/lib/api/response";
+import { withV1ApiWrapper } from "@/app/lib/api/with-api-logging";
+import { getTables } from "@/lib/airtable/service";
+import { hasUserEnvironmentAccess } from "@/lib/environment/auth";
+import { getIntegrationByType } from "@/lib/integration/service";
 
-export const GET = async (req: NextRequest) => {
-  const url = req.url;
-  const environmentId = req.headers.get("environmentId");
-  const queryParams = new URLSearchParams(url.split("?")[1]);
-  const session = await getServerSession(authOptions);
-  const baseId = z.string().safeParse(queryParams.get("baseId"));
+export const GET = withV1ApiWrapper({
+  handler: async ({ req, authentication }) => {
+    if (!authentication || !("user" in authentication)) {
+      return { response: responses.notAuthenticatedResponse() };
+    }
 
-  if (!baseId.success) {
-    return responses.missingFieldResponse("Base Id is Required");
-  }
+    const url = req.url;
+    const environmentId = req.headers.get("environmentId");
+    const queryParams = new URLSearchParams(url.split("?")[1]);
+    const baseId = z.string().safeParse(queryParams.get("baseId"));
 
-  if (!session) {
-    return responses.notAuthenticatedResponse();
-  }
+    if (!baseId.success) {
+      return {
+        response: responses.badRequestResponse("Base Id is Required"),
+      };
+    }
 
-  if (!environmentId) {
-    return responses.badRequestResponse("environmentId is missing");
-  }
+    if (!environmentId) {
+      return {
+        response: responses.badRequestResponse("environmentId is missing"),
+      };
+    }
 
-  const canUserAccessEnvironment = await hasUserEnvironmentAccess(session?.user.id, environmentId);
-  if (!canUserAccessEnvironment || !environmentId) {
-    return responses.unauthorizedResponse();
-  }
+    const canUserAccessEnvironment = await hasUserEnvironmentAccess(authentication.user.id, environmentId);
+    if (!canUserAccessEnvironment) {
+      return {
+        response: responses.unauthorizedResponse(),
+      };
+    }
 
-  const integration = (await getIntegrationByType(environmentId, "airtable")) as TIntegrationAirtable;
+    const integration = (await getIntegrationByType(environmentId, "airtable")) as TIntegrationAirtable;
 
-  if (!integration) {
-    return responses.notFoundResponse("Integration not found", environmentId);
-  }
+    if (!integration) {
+      return {
+        response: responses.notFoundResponse("Integration not found", environmentId),
+      };
+    }
 
-  const tables = await getTables(integration.config.key, baseId.data);
-  return responses.successResponse(tables);
-};
+    const tables = await getTables(integration.config.key, baseId.data);
+    return {
+      response: responses.successResponse(tables),
+    };
+  },
+});

@@ -1,6 +1,5 @@
 import { z } from "zod";
-
-import { ZIntegrationBase, ZIntegrationBaseSurveyData } from "./sharedTypes";
+import { ZIntegrationBase, ZIntegrationBaseSurveyData } from "./shared-types";
 
 export const ZIntegrationNotionCredential = z.object({
   access_token: z.string(),
@@ -9,17 +8,19 @@ export const ZIntegrationNotionCredential = z.object({
   duplicated_template_id: z.string().nullable(),
   owner: z.object({
     type: z.string(),
-    workspace: z.boolean().nullable(),
+    workspace: z.boolean().nullish(),
     user: z
       .object({
         id: z.string(),
-        name: z.string(),
-        type: z.string(),
+        name: z.string().nullish(),
+        type: z.string().nullish(),
         object: z.string(),
-        person: z.object({
-          email: z.string().email(),
-        }),
-        avatar_url: z.string(),
+        person: z
+          .object({
+            email: z.email(),
+          })
+          .nullish(),
+        avatar_url: z.string().nullish(),
       })
       .nullable(),
   }),
@@ -32,10 +33,10 @@ export type TIntegrationNotionCredential = z.infer<typeof ZIntegrationNotionCred
 
 export const ZIntegrationNotionConfigData = z
   .object({
-    // question -> notion database column mapping
+    // element -> notion database column mapping
     mapping: z.array(
       z.object({
-        question: z.object({
+        element: z.object({
           id: z.string(),
           name: z.string(),
           type: z.string(),
@@ -50,11 +51,11 @@ export const ZIntegrationNotionConfigData = z
     databaseId: z.string(),
     databaseName: z.string(),
   })
-  .merge(
+  .extend(
     ZIntegrationBaseSurveyData.omit({
-      questionIds: true,
-      questions: true,
-    })
+      elementIds: true,
+      elements: true,
+    }).shape
   );
 
 export type TIntegrationNotionConfigData = z.infer<typeof ZIntegrationNotionConfigData>;

@@ -1,58 +1,62 @@
+import { AuthenticationError, ResourceNotFoundError } from "@formbricks/types/errors";
 import { SurveyAnalysisNavigation } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/components/SurveyAnalysisNavigation";
 import { ResponsePage } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/responses/components/ResponsePage";
 import { SurveyAnalysisCTA } from "@/app/(app)/environments/[environmentId]/surveys/[surveyId]/(analysis)/summary/components/SurveyAnalysisCTA";
-import { getServerSession } from "next-auth";
+import { IS_FORMBRICKS_CLOUD, IS_STORAGE_CONFIGURED, RESPONSES_PER_PAGE } from "@/lib/constants";
+import { getPublicDomain } from "@/lib/getPublicUrl";
+import { getResponseCountBySurveyId, getResponses } from "@/lib/response/service";
+import { getSurvey } from "@/lib/survey/service";
+import { getTagsByEnvironmentId } from "@/lib/tag/service";
+import { getUser } from "@/lib/user/service";
+import { getTranslate } from "@/lingodotdev/server";
+import { getSegments } from "@/modules/ee/contacts/segments/lib/segments";
+import { getIsContactsEnabled, getIsQuotasEnabled } from "@/modules/ee/license-check/lib/utils";
+import { getQuotas } from "@/modules/ee/quotas/lib/quotas";
+import { getEnvironmentAuth } from "@/modules/environments/lib/utils";
+import { getOrganizationBilling } from "@/modules/survey/lib/survey";
+import { PageContentWrapper } from "@/modules/ui/components/page-content-wrapper";
+import { PageHeader } from "@/modules/ui/components/page-header";
 
-import { authOptions } from "@formbricks/lib/authOptions";
-import { RESPONSES_PER_PAGE, WEBAPP_URL } from "@formbricks/lib/constants";
-import { getEnvironment } from "@formbricks/lib/environment/service";
-import { getMembershipByUserIdOrganizationId } from "@formbricks/lib/membership/service";
-import { getAccessFlags } from "@formbricks/lib/membership/utils";
-import { getOrganizationByEnvironmentId } from "@formbricks/lib/organization/service";
-import { getProductByEnvironmentId } from "@formbricks/lib/product/service";
-import { getResponseCountBySurveyId } from "@formbricks/lib/response/service";
-import { getSurvey } from "@formbricks/lib/survey/service";
-import { getTagsByEnvironmentId } from "@formbricks/lib/tag/service";
-import { getUser } from "@formbricks/lib/user/service";
-import { PageContentWrapper } from "@formbricks/ui/PageContentWrapper";
-import { PageHeader } from "@formbricks/ui/PageHeader";
+const Page = async (props: { params: Promise<{ environmentId: string; surveyId: string }> }) => {
+  const params = await props.params;
+  const t = await getTranslate();
 
-const Page = async ({ params }) => {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    throw new Error("Unauthorized");
-  }
-  const [survey, environment] = await Promise.all([
+  const { session, environment, organization, isReadOnly } = await getEnvironmentAuth(params.environmentId);
+
+  const [survey, user, tags, isContactsEnabled, responseCount] = await Promise.all([
     getSurvey(params.surveyId),
-    getEnvironment(params.environmentId),
+    getUser(session.user.id),
+    getTagsByEnvironmentId(params.environmentId),
+    getIsContactsEnabled(organization.id),
+    getResponseCountBySurveyId(params.surveyId),
   ]);
 
-  if (!environment) {
-    throw new Error("Environment not found");
-  }
   if (!survey) {
-    throw new Error("Survey not found");
-  }
-  const product = await getProductByEnvironmentId(environment.id);
-  if (!product) {
-    throw new Error("Product not found");
+    throw new ResourceNotFoundError(t("common.survey"), params.surveyId);
   }
 
-  const user = await getUser(session.user.id);
   if (!user) {
-    throw new Error("User not found");
+    throw new AuthenticationError(t("common.not_authenticated"));
   }
-  const tags = await getTagsByEnvironmentId(params.environmentId);
-  const organization = await getOrganizationByEnvironmentId(params.environmentId);
 
   if (!organization) {
-    throw new Error("Organization not found");
+    throw new ResourceNotFoundError(t("common.organization"), null);
   }
 
-  const currentUserMembership = await getMembershipByUserIdOrganizationId(session?.user.id, organization.id);
-  const totalResponseCount = await getResponseCountBySurveyId(params.surveyId);
+  const segments = isContactsEnabled ? await getSegments(params.environmentId) : [];
 
-  const { isViewer } = getAccessFlags(currentUserMembership?.role);
+  const publicDomain = getPublicDomain();
+
+  const organizationBilling = await getOrganizationBilling(organization.id);
+  if (!organizationBilling) {
+    throw new ResourceNotFoundError(t("common.organization"), organization.id);
+  }
+
+  const isQuotasAllowed = await getIsQuotasEnabled(organization.id);
+  const quotas = isQuotasAllowed ? await getQuotas(survey.id) : [];
+
+  // Fetch initial responses on the server to prevent duplicate client-side fetch
+  const initialResponses = await getResponses(params.surveyId, RESPONSES_PER_PAGE, 0);
 
   return (
     <PageContentWrapper>
@@ -62,27 +66,30 @@ const Page = async ({ params }) => {
           <SurveyAnalysisCTA
             environment={environment}
             survey={survey}
-            isViewer={isViewer}
-            webAppUrl={WEBAPP_URL}
+            isReadOnly={isReadOnly}
             user={user}
+            publicDomain={publicDomain}
+            responseCount={responseCount}
+            segments={segments}
+            isContactsEnabled={isContactsEnabled}
+            isFormbricksCloud={IS_FORMBRICKS_CLOUD}
+            isStorageConfigured={IS_STORAGE_CONFIGURED}
           />
         }>
-        <SurveyAnalysisNavigation
-          environmentId={environment.id}
-          responseCount={totalResponseCount}
-          surveyId={survey.id}
-          activeId="responses"
-        />
+        <SurveyAnalysisNavigation environmentId={environment.id} survey={survey} activeId="responses" />
       </PageHeader>
       <ResponsePage
         environment={environment}
         survey={survey}
         surveyId={params.surveyId}
-        webAppUrl={WEBAPP_URL}
         environmentTags={tags}
         user={user}
         responsesPerPage={RESPONSES_PER_PAGE}
-        totalResponseCount={totalResponseCount}
+        locale={user.locale}
+        isReadOnly={isReadOnly}
+        isQuotasAllowed={isQuotasAllowed}
+        quotas={quotas}
+        initialResponses={initialResponses}
       />
     </PageContentWrapper>
   );

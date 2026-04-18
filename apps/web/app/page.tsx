@@ -1,50 +1,85 @@
 import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-
-import { authOptions } from "@formbricks/lib/authOptions";
-import { ONBOARDING_DISABLED } from "@formbricks/lib/constants";
-import { getFirstEnvironmentByUserId } from "@formbricks/lib/environment/service";
-import { getOrganizationsByUserId } from "@formbricks/lib/organization/service";
-import { ClientLogout } from "@formbricks/ui/ClientLogout";
+import ClientEnvironmentRedirect from "@/app/ClientEnvironmentRedirect";
+import { IS_FORMBRICKS_CLOUD } from "@/lib/constants";
+import { getIsFreshInstance } from "@/lib/instance/service";
+import { getMembershipByUserIdOrganizationId } from "@/lib/membership/service";
+import { getAccessFlags } from "@/lib/membership/utils";
+import { getOrganizationsByUserId } from "@/lib/organization/service";
+import { getUserProjectEnvironmentsByOrganizationIds } from "@/lib/project/service";
+import { getUser } from "@/lib/user/service";
+import { authOptions } from "@/modules/auth/lib/authOptions";
+import { ClientLogout } from "@/modules/ui/components/client-logout";
 
 const Page = async () => {
   const session: Session | null = await getServerSession(authOptions);
+  const isFreshInstance = await getIsFreshInstance();
 
   if (!session) {
-    redirect("/auth/login");
-  }
-
-  if (!session?.user) {
-    return <ClientLogout />;
-  }
-
-  const organizations = await getOrganizationsByUserId(session.user.id);
-  if (!organizations || organizations.length === 0) {
-    console.error("Failed to get organizations, redirecting to create-first-organization");
-    return redirect("/create-first-organization");
-  }
-
-  if (!ONBOARDING_DISABLED && !session.user.onboardingCompleted) {
-    return redirect(`/onboarding`);
-  }
-
-  let environment;
-  try {
-    environment = await getFirstEnvironmentByUserId(session?.user.id);
-    if (!environment) {
-      throw new Error("No environment found");
+    if (isFreshInstance) {
+      return redirect("/setup/intro");
+    } else {
+      return redirect("/auth/login");
     }
-  } catch (error) {
-    console.error(`error getting environment: ${error}`);
   }
 
-  if (!environment) {
-    console.error("Failed to get first environment of user; signing out");
+  const user = await getUser(session.user.id);
+  if (!user) {
     return <ClientLogout />;
   }
 
-  return redirect(`/environments/${environment.id}`);
+  const userOrganizations = await getOrganizationsByUserId(session.user.id);
+
+  if (userOrganizations.length === 0) {
+    return redirect("/setup/organization/create");
+  }
+
+  const projectsByOrg = await getUserProjectEnvironmentsByOrganizationIds(
+    userOrganizations.map((org) => org.id),
+    user.id
+  );
+
+  // Flatten all environments from all projects across all organizations
+  const allEnvironments = projectsByOrg.flatMap((project) => project.environments);
+
+  // Find first production environment and collect all other environment IDs in one pass
+  const { firstProductionEnvironmentId, otherEnvironmentIds } = allEnvironments.reduce(
+    (acc, env) => {
+      if (env.type === "production" && !acc.firstProductionEnvironmentId) {
+        acc.firstProductionEnvironmentId = env.id;
+      } else {
+        acc.otherEnvironmentIds.add(env.id);
+      }
+      return acc;
+    },
+    { firstProductionEnvironmentId: null as string | null, otherEnvironmentIds: new Set<string>() }
+  );
+
+  const userEnvironments = [...otherEnvironmentIds];
+
+  const currentUserMembership = await getMembershipByUserIdOrganizationId(
+    session.user.id,
+    userOrganizations[0].id
+  );
+
+  const { isManager, isOwner } = getAccessFlags(currentUserMembership?.role);
+
+  if (!firstProductionEnvironmentId) {
+    if (isOwner || isManager) {
+      if (IS_FORMBRICKS_CLOUD) {
+        return redirect(`/organizations/${userOrganizations[0].id}/workspaces/new/plan`);
+      }
+      return redirect(`/organizations/${userOrganizations[0].id}/workspaces/new/mode`);
+    } else {
+      return redirect(`/organizations/${userOrganizations[0].id}/landing`);
+    }
+  }
+
+  // Put the first production environment at the front of the array
+  const sortedUserEnvironments = [firstProductionEnvironmentId, ...userEnvironments];
+
+  return <ClientEnvironmentRedirect userEnvironments={sortedUserEnvironments} />;
 };
 
 export default Page;

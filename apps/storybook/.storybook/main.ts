@@ -1,27 +1,52 @@
 import type { StorybookConfig } from "@storybook/react-vite";
-import { dirname, join } from "path";
+import { createRequire } from "module";
+import { dirname, join, resolve } from "path";
+import { fileURLToPath } from "url";
+
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * This function is used to resolve the absolute path of a package.
  * It is needed in projects that use Yarn PnP or are set up within a monorepo.
  */
-const getAbsolutePath = (value: string): any => {
+function getAbsolutePath(value: string): any {
   return dirname(require.resolve(join(value, "package.json")));
-};
+}
 
-export const config: StorybookConfig = {
-  stories: ["../../../packages/ui/**/stories.@(js|jsx|mjs|ts|tsx)"],
+const config: StorybookConfig = {
+  stories: ["../src/**/*.mdx", "../../../packages/survey-ui/src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],
   addons: [
-    getAbsolutePath("@storybook/addon-links"),
-    getAbsolutePath("@storybook/addon-essentials"),
     getAbsolutePath("@storybook/addon-onboarding"),
-    getAbsolutePath("@storybook/addon-interactions"),
+    getAbsolutePath("@storybook/addon-links"),
+    getAbsolutePath("@chromatic-com/storybook"),
+    getAbsolutePath("@storybook/addon-a11y"),
+    getAbsolutePath("@storybook/addon-docs"),
   ],
   framework: {
     name: getAbsolutePath("@storybook/react-vite"),
     options: {},
   },
-  docs: {
-    autodocs: "tag",
+  async viteFinal(config) {
+    const surveyUiPath = resolve(__dirname, "../../../packages/survey-ui/src");
+    const rootPath = resolve(__dirname, "../../../");
+
+    // Configure server to allow files from outside the storybook directory
+    config.server = config.server || {};
+    config.server.fs = {
+      ...config.server.fs,
+      allow: [...(config.server.fs?.allow || []), rootPath],
+    };
+
+    // Configure simple alias resolution
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@": surveyUiPath,
+    };
+
+    return config;
   },
 };
+export default config;

@@ -2,9 +2,6 @@
 module.exports = {
   important: "#fbjs",
   darkMode: "class",
-  corePlugins: {
-    preflight: false,
-  },
   content: ["./src/**/*.{tsx,ts,jsx,js}"],
   theme: {
     extend: {
@@ -22,13 +19,11 @@ module.exports = {
         "branding-text": "var(--fb-branding-text-color)",
         "survey-bg": "var(--fb-survey-background-color)",
         "survey-border": "var(--fb-survey-border-color)",
-        "survey-shadow": "var(--fb-survey-shadow-color)",
         "accent-bg": "var(--fb-accent-background-color)",
         "accent-selected-bg": "var(--fb-accent-background-color-selected)",
         "input-bg": "var(--fb-input-background-color)",
         "input-bg-selected": "var(--fb-input-background-color-selected)",
         placeholder: "var(--fb-placeholder-color)",
-        shadow: "var(--fb-shadow-color)",
         "rating-fill": "var(--fb-rating-fill)",
         "rating-focus": "var(--fb-rating-hover)",
         "rating-selected": "var(--fb-rating-selected)",
@@ -36,6 +31,7 @@ module.exports = {
         "submit-button-border": "var(--fb-submit-btn-border)",
         "close-button": "var(--fb-close-btn-color)",
         "close-button-focus": "var(--fb-close-btn-hover-color)",
+        "calendar-tile": "var(--fb-calendar-tile-color)",
       },
       borderRadius: {
         custom: "var(--fb-border-radius)",
